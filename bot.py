@@ -118,6 +118,7 @@ async def on_message(message):
 async def generate_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id].append({"role": "user", "content": f"{user_name}: {prompt}"})
+        context = bot.listening_channels[channel_id][-4000:]
         payload = {
             "model": "RobotBleu",
             "messages": bot.listening_channels[channel_id],
