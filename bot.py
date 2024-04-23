@@ -118,7 +118,6 @@ async def on_message(message):
 async def generate_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id].append({"role": "user", "content": f"{user_name}: {prompt}"})
-        context = bot.listening_channels[channel_id][-4000:]
         payload = {
             "model": "RobotBleu",
             "messages": bot.listening_channels[channel_id],
@@ -145,7 +144,24 @@ async def load_context(channel_id):
             return json.loads(file.read())
     except FileNotFoundError:
         return []
-    
+
+async def destroy_model():
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Supprimer le modèle existant s'il existe
+            async with session.delete('http://localhost:11434/api/delete', json={"name": "RobotBleu"}) as response:
+                if response.status == 200:
+                    print("Modèle RobotBleu supprimé avec succès")
+                elif response.status == 404:
+                    print("Le modèle RobotBleu n'existait pas")
+                else:
+                    print(f"Erreur lors de la suppression du modèle : {response.status}")
+
+            # Créer le nouveau modèle
+    except Exception as e:
+        print(f"Erreur lors de la création du modèle : {e}")
+    return
+
 async def create_model():
     try:
         with open("Robot Bleu.txt", "r") as file:
@@ -166,6 +182,7 @@ async def create_model():
     
 @bot.command(name='refresh_model')
 async def refresh_model(ctx):
+    await destroy_model()
     await create_model()
     await ctx.send("Le modèle RobotBleu a été rafraîchi.")
 
