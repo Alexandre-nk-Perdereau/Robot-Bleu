@@ -15,14 +15,13 @@ bot.channel_id = None
 bot.listening_channels = {}
 request_queue = asyncio.Queue()
 
+max_context_length = 8192 * 2
+
 async def process_request_queue():
     while True:
         user_name, prompt, channel_id = await request_queue.get()
         try:
-            response = await generate_response(user_name, prompt, channel_id)
-            if response != '':
-                channel = bot.get_channel(channel_id)
-                await channel.send(response)
+            await stream_response(user_name, prompt, channel_id)
         except Exception as e:
             print(f"Erreur lors du traitement de la requête : {e}")
         finally:
@@ -118,6 +117,13 @@ async def on_message(message):
 async def generate_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id].append({"role": "user", "content": f"{user_name}: {prompt}"})
+
+        context_length = sum(len(message["content"]) for message in bot.listening_channels[channel_id])
+
+        while context_length > max_context_length:
+            removed_message = bot.listening_channels[channel_id].pop(0)
+            context_length -= len(removed_message["content"])
+    
         payload = {
             "model": "RobotBleu",
             "messages": bot.listening_channels[channel_id],
@@ -132,6 +138,71 @@ async def generate_response(user_name, prompt, channel_id):
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
+        
+async def stream_response(user_name, prompt, channel_id):
+    async with aiohttp.ClientSession() as session:
+        bot.listening_channels[channel_id].append({"role": "user", "content": f"{user_name}: {prompt}"})
+
+        context_length = sum(len(message["content"]) for message in bot.listening_channels[channel_id])
+
+        while context_length > max_context_length:
+            removed_message = bot.listening_channels[channel_id].pop(0)
+            context_length -= len(removed_message["content"])
+
+        payload = {
+            "model": "RobotBleu",
+            "messages": bot.listening_channels[channel_id],
+            "stream": True
+        }
+        
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            print(f"Erreur : le canal spécifié n'a pas été trouvé. ID: {channel_id}")
+            return
+        
+        try:
+            current_message = await channel.send("Génération de la réponse en cours...")
+            message_content = ""
+            accumulated_response = ""
+
+            async with session.post('http://localhost:11434/api/chat', json=payload) as response:
+                buffer = ""
+                async for line in response.content:
+                    if line:
+                        data = json.loads(line)
+                        if 'message' in data:
+                            content = data['message'].get('content', '')
+                            if content:
+                                accumulated_response += content
+                                buffer += content
+
+                                # limit the calls to discord api
+                                if len(buffer) >= 200:
+                                    message_content += buffer
+                                    if len(message_content) > 2000:
+                                        await current_message.edit(content=message_content[:2000])
+                                        current_message = await channel.send(message_content[2000:])
+                                        message_content = message_content[2000:]
+                                    else:
+                                        await current_message.edit(content=message_content)
+                                    buffer = ""
+
+                if buffer:
+                    message_content += buffer
+                    if len(message_content) > 2000:
+                        await current_message.edit(content=message_content[:2000])
+                        await channel.send(message_content[2000:])
+                    else:
+                        await current_message.edit(content=message_content)
+
+            if accumulated_response:
+                bot.listening_channels[channel_id].append({"role": "assistant", "content": accumulated_response})
+                await save_context(channel_id, bot.listening_channels[channel_id])
+
+        except Exception as e:
+            print(f"Erreur lors de l'appel à Ollama : {e}")
+            await channel.send(f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}")
+
         
 async def save_context(channel_id, context):
     with open(f"context_{channel_id}.txt", "w") as file:
@@ -169,7 +240,8 @@ async def create_model():
         async with aiohttp.ClientSession() as session:
             payload = {
                 "name": "RobotBleu",
-                "modelfile": modelfile
+                "modelfile": modelfile,
+                "stream": False
             }
             async with session.post('http://localhost:11434/api/create', json=payload) as response:
                 if response.status == 200:
