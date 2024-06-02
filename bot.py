@@ -2,9 +2,7 @@ import discord
 from discord.ext import commands
 import aiohttp
 import json
-import re
 import asyncio
-
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -21,7 +19,7 @@ async def process_request_queue():
     while True:
         user_name, prompt, channel_id = await request_queue.get()
         try:
-            await stream_response(user_name, prompt, channel_id)
+            await process_message(user_name, prompt, channel_id)
         except Exception as e:
             print(f"Erreur lors du traitement de la requête : {e}")
         finally:
@@ -36,64 +34,63 @@ async def on_ready():
     bot.loop.create_task(process_request_queue())
 
 @bot.command(name='listen')
-async def listen(ctx, url: str):
-    print(f"Commande listen déclenchée avec l'URL: {url}")
-    match = re.search(r"https://discord\.com/channels/\d+/(?P<channel_id>\d+)", url)
-    if match:
-        channel_id = int(match.group('channel_id'))
-        print(f"ID du canal extrait: {channel_id}")
-        channel = bot.get_channel(channel_id)
-        if channel:
-            print(f"Canal récupéré: {channel.name}")
-            try:
-                if channel.id not in bot.listening_channels:
-                    bot.listening_channels[channel.id] = []
-                    await ctx.send(f"Je vais maintenant écouter le salon {channel.mention}")
-                else:
-                    await ctx.send(f"J'écoute déjà le salon {channel.mention}")
-            except Exception as e:
-                await ctx.send(f"Une erreur inattendue est survenue: {str(e)}")
-        else:
-            await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé. Veuillez vérifier le lien.")
+async def listen(ctx):
+    channel_id = ctx.channel.id
+    channel = bot.get_channel(channel_id)
+    if channel:
+        try:
+            if channel.id not in bot.listening_channels:
+                bot.listening_channels[channel.id] = {"messages": [], "mode": "streaming"}
+                await ctx.send(f"Je vais maintenant écouter le salon {channel.mention}")
+            else:
+                await ctx.send(f"J'écoute déjà le salon {channel.mention}")
+        except Exception as e:
+            await ctx.send(f"Une erreur inattendue est survenue: {str(e)}")
     else:
-        await ctx.send("L'URL fournie ne semble pas être un lien de canal Discord valide. Assurez-vous que le format est correct.")
-
-
+        await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
 
 @bot.command(name='pause_listen')
-async def pause_listen(ctx, url: str):
-    match = re.search(r"https://discord\.com/channels/\d+/(?P<channel_id>\d+)", url)
-    if match:
-        channel_id = int(match.group('channel_id'))
-        channel = bot.get_channel(channel_id)
-        if channel:
-            if channel.id in bot.listening_channels:
-                del bot.listening_channels[channel.id]
-                await ctx.send(f"J'ai mis en pause l'écoute du salon {channel.mention}")
-            else:
-                await ctx.send(f"Je n'écoutais pas le salon {channel.mention}")
+async def pause_listen(ctx):
+    channel_id = ctx.channel.id
+    channel = bot.get_channel(channel_id)
+    if channel:
+        if channel.id in bot.listening_channels:
+            del bot.listening_channels[channel.id]
+            await ctx.send(f"J'ai mis en pause l'écoute du salon {channel.mention}")
         else:
-            await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé. Veuillez vérifier le lien.")
+            await ctx.send(f"Je n'écoutais pas le salon {channel.mention}")
     else:
-        await ctx.send("L'URL fournie ne semble pas être un lien de canal Discord valide. Assurez-vous que le format est correct.")
+        await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
 
 @bot.command(name='stop_listen')
-async def stop_listen(ctx, url: str):
-    match = re.search(r"https://discord\.com/channels/\d+/(?P<channel_id>\d+)", url)
-    if match:
-        channel_id = int(match.group('channel_id'))
-        channel = bot.get_channel(channel_id)
-        if channel:
-            if channel.id in bot.listening_channels:
-                del bot.listening_channels[channel.id]
-                await save_context(channel.id, [])
-                await ctx.send(f"J'ai arrêté d'écouter le salon {channel.mention} et supprimé son contexte")
-            else:
-                await ctx.send(f"Je n'écoutais pas le salon {channel.mention}")
+async def stop_listen(ctx):
+    channel_id = ctx.channel.id
+    channel = bot.get_channel(channel_id)
+    if channel:
+        if channel.id in bot.listening_channels:
+            del bot.listening_channels[channel.id]
+            await save_context(channel.id, [])
+            await ctx.send(f"J'ai arrêté d'écouter le salon {channel.mention} et supprimé son contexte")
         else:
-            await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé. Veuillez vérifier le lien.")
+            await ctx.send(f"Je n'écoutais pas le salon {channel.mention}")
     else:
-        await ctx.send("L'URL fournie ne semble pas être un lien de canal Discord valide. Assurez-vous que le format est correct.")
+        await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
+
+@bot.command(name='set_mode')
+async def set_mode(ctx, mode: str):
+    channel_id = ctx.channel.id
+    channel = bot.get_channel(channel_id)
+    if channel:
+        if mode.lower() in ["streaming", "non-streaming"]:
+            if channel.id in bot.listening_channels:
+                bot.listening_channels[channel.id]["mode"] = mode.lower()
+                await ctx.send(f"Le mode du salon {channel.mention} a été défini sur {mode.lower()}")
+            else:
+                await ctx.send(f"Je n'écoute pas le salon {channel.mention}")
+        else:
+            await ctx.send("Mode invalide. Utilisez 'streaming' ou 'non-streaming'.")
+    else:
+        await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
 
 @bot.event
 async def on_message(message):
@@ -105,35 +102,37 @@ async def on_message(message):
         return
 
     if message.channel.id in bot.listening_channels:
-        # Envoi du message à l'API d'Ollama
         await request_queue.put((message.author.name, message.content, message.channel.id))
-        # response = await generate_response(message.author.name, message.content, message.channel.id)
-        # if response != '':
-        #     # Envoi de la réponse dans le salon Discord
-        #     await message.channel.send(response)
 
     await bot.process_commands(message)
 
+async def process_message(user_name, prompt, channel_id):
+    mode = bot.listening_channels[channel_id].get("mode", "streaming")
+    if mode == "streaming":
+        await stream_response(user_name, prompt, channel_id)
+    else:
+        await generate_response(user_name, prompt, channel_id)
+
 async def generate_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
-        bot.listening_channels[channel_id].append({"role": "user", "content": f"{user_name}: {prompt}"})
+        bot.listening_channels[channel_id]["messages"].append({"role": "user", "content": f"{user_name}: {prompt}"})
 
-        context_length = sum(len(message["content"]) for message in bot.listening_channels[channel_id])
+        context_length = sum(len(message["content"]) for message in bot.listening_channels[channel_id]["messages"])
 
         while context_length > max_context_length:
-            removed_message = bot.listening_channels[channel_id].pop(0)
+            removed_message = bot.listening_channels[channel_id]["messages"].pop(0)
             context_length -= len(removed_message["content"])
     
         payload = {
             "model": "RobotBleu",
-            "messages": bot.listening_channels[channel_id],
+            "messages": bot.listening_channels[channel_id]["messages"],
             "stream": False
         }
         try:
             async with session.post('http://localhost:11434/api/chat', json=payload) as response:
                 data = await response.json()
-                bot.listening_channels[channel_id].append(data['message'])
-                await save_context(channel_id, bot.listening_channels[channel_id])
+                bot.listening_channels[channel_id]["messages"].append(data['message'])
+                await save_context(channel_id, bot.listening_channels[channel_id]["messages"])
                 return data.get('message', {}).get('content', "Je n'ai pas pu générer de réponse.")
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
@@ -141,17 +140,17 @@ async def generate_response(user_name, prompt, channel_id):
         
 async def stream_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
-        bot.listening_channels[channel_id].append({"role": "user", "content": f"{user_name}: {prompt}"})
+        bot.listening_channels[channel_id]["messages"].append({"role": "user", "content": f"{user_name}: {prompt}"})
 
-        context_length = sum(len(message["content"]) for message in bot.listening_channels[channel_id])
+        context_length = sum(len(message["content"]) for message in bot.listening_channels[channel_id]["messages"])
 
         while context_length > max_context_length:
-            removed_message = bot.listening_channels[channel_id].pop(0)
+            removed_message = bot.listening_channels[channel_id]["messages"].pop(0)
             context_length -= len(removed_message["content"])
 
         payload = {
             "model": "RobotBleu",
-            "messages": bot.listening_channels[channel_id],
+            "messages": bot.listening_channels[channel_id]["messages"],
             "stream": True
         }
         
@@ -196,14 +195,13 @@ async def stream_response(user_name, prompt, channel_id):
                         await current_message.edit(content=message_content)
 
             if accumulated_response:
-                bot.listening_channels[channel_id].append({"role": "assistant", "content": accumulated_response})
-                await save_context(channel_id, bot.listening_channels[channel_id])
+                bot.listening_channels[channel_id]["messages"].append({"role": "assistant", "content": accumulated_response})
+                await save_context(channel_id, bot.listening_channels[channel_id]["messages"])
 
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
             await channel.send(f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}")
 
-        
 async def save_context(channel_id, context):
     with open(f"context_{channel_id}.txt", "w") as file:
         file.write(json.dumps(context))
@@ -251,7 +249,7 @@ async def create_model():
     except Exception as e:
         print(f"Erreur lors de la création du modèle : {e}")
     return
-    
+
 @bot.command(name='refresh_model')
 async def refresh_model(ctx):
     await destroy_model()
@@ -262,4 +260,3 @@ with open('token.txt', 'r') as file:
     token = file.read().strip()
 
 bot.run(token)
-
