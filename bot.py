@@ -3,17 +3,25 @@ from discord.ext import commands
 import aiohttp
 import json
 import asyncio
+import pyttsx3
 
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
+intents.voice_states = True
 
 bot = commands.Bot(command_prefix='$', intents=intents)
 bot.channel_id = None
 bot.listening_channels = {}
 request_queue = asyncio.Queue()
+voice_queues = {}
 
 max_context_length = 8192 * 2
+
+engine = pyttsx3.init()
+voices = engine.getProperty('voices')
+# Set default voice
+engine.setProperty('voice', voices[0].id)
 
 async def process_request_queue():
     while True:
@@ -37,11 +45,18 @@ async def on_ready():
 async def listen(ctx):
     channel_id = ctx.channel.id
     channel = bot.get_channel(channel_id)
+    voice_channel = ctx.author.voice.channel if ctx.author.voice else None
     if channel:
         try:
             if channel.id not in bot.listening_channels:
                 bot.listening_channels[channel.id] = {"messages": [], "mode": "streaming"}
                 await ctx.send(f"Je vais maintenant écouter le salon {channel.mention}")
+
+                if voice_channel:
+                    vc = await voice_channel.connect()
+                    bot.listening_channels[channel.id]['voice_client'] = vc
+                    voice_queues[vc.channel.id] = asyncio.Queue()
+
             else:
                 await ctx.send(f"J'écoute déjà le salon {channel.mention}")
         except Exception as e:
@@ -55,6 +70,10 @@ async def pause_listen(ctx):
     channel = bot.get_channel(channel_id)
     if channel:
         if channel.id in bot.listening_channels:
+            vc = bot.listening_channels[channel.id].get('voice_client')
+            if vc:
+                await vc.disconnect()
+                await clear_voice_queue(vc.channel.id)
             del bot.listening_channels[channel.id]
             await ctx.send(f"J'ai mis en pause l'écoute du salon {channel.mention}")
         else:
@@ -68,6 +87,10 @@ async def stop_listen(ctx):
     channel = bot.get_channel(channel_id)
     if channel:
         if channel.id in bot.listening_channels:
+            vc = bot.listening_channels[channel.id].get('voice_client')
+            if vc:
+                await vc.disconnect()
+                await clear_voice_queue(vc.channel.id)
             del bot.listening_channels[channel.id]
             await save_context(channel.id, [])
             await ctx.send(f"J'ai arrêté d'écouter le salon {channel.mention} et supprimé son contexte")
@@ -91,6 +114,14 @@ async def set_mode(ctx, mode: str):
             await ctx.send("Mode invalide. Utilisez 'streaming' ou 'non-streaming'.")
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
+
+@bot.command(name='set_voice')
+async def set_voice(ctx, voice_index: int):
+    try:
+        engine.setProperty('voice', voices[voice_index].id)
+        await ctx.send(f"Voix définie sur : {voices[voice_index].name}")
+    except IndexError:
+        await ctx.send(f"Index de voix invalide. Veuillez choisir un index entre 0 et {len(voices) - 1}.")
 
 @bot.event
 async def on_message(message):
@@ -133,11 +164,13 @@ async def generate_response(user_name, prompt, channel_id):
                 data = await response.json()
                 bot.listening_channels[channel_id]["messages"].append(data['message'])
                 await save_context(channel_id, bot.listening_channels[channel_id]["messages"])
-                return data.get('message', {}).get('content', "Je n'ai pas pu générer de réponse.")
+                content = data.get('message', {}).get('content', "Je n'ai pas pu générer de réponse.")
+                await queue_tts_response(content, channel_id)
+                return content
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
-        
+
 async def stream_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id]["messages"].append({"role": "user", "content": f"{user_name}: {prompt}"})
@@ -197,10 +230,37 @@ async def stream_response(user_name, prompt, channel_id):
             if accumulated_response:
                 bot.listening_channels[channel_id]["messages"].append({"role": "assistant", "content": accumulated_response})
                 await save_context(channel_id, bot.listening_channels[channel_id]["messages"])
+                await queue_tts_response(accumulated_response, channel_id)
 
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
             await channel.send(f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}")
+
+async def queue_tts_response(text, channel_id):
+    vc = bot.listening_channels[channel_id].get('voice_client')
+    if vc:
+        queue = voice_queues[vc.channel.id]
+        await queue.put(text)
+        if queue.qsize() == 1:
+            await process_voice_queue(vc)
+
+async def process_voice_queue(vc):
+    queue = voice_queues[vc.channel.id]
+    while not queue.empty():
+        text = await queue.get()
+        engine.save_to_file(text, 'response.mp3')
+        engine.runAndWait()
+        vc.play(discord.FFmpegPCMAudio('response.mp3'))
+        while vc.is_playing():
+            await asyncio.sleep(1)
+        queue.task_done()
+
+async def clear_voice_queue(channel_id):
+    if channel_id in voice_queues:
+        queue = voice_queues[channel_id]
+        while not queue.empty():
+            queue.get_nowait()
+            queue.task_done()
 
 async def save_context(channel_id, context):
     with open(f"context_{channel_id}.txt", "w") as file:
