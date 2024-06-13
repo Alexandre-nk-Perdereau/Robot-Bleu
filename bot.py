@@ -4,6 +4,9 @@ import aiohttp
 import json
 import asyncio
 import pyttsx3
+from elevenlabs.client import ElevenLabs
+from elevenlabs import VoiceSettings
+from io import BytesIO
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -23,6 +26,51 @@ voices = engine.getProperty("voices")
 # Set default voice
 engine.setProperty("voice", voices[0].id)
 
+with open("elevenlabtoken.txt", "r") as file:
+    elevenlabs_token = file.read().strip()
+
+default_elevenlabs_voice_id = "silVg69rhFXHR4yyKTiS"
+
+elevenlabs_client = ElevenLabs(api_key=elevenlabs_token)
+
+async def elevenlabs_tts(vc, text):
+    voice_id = bot.listening_channels[vc.channel.id].get("elevenlabs_voice_id", default_elevenlabs_voice_id)
+    try:
+        response = elevenlabs_client.text_to_speech.convert(
+            voice_id=voice_id,
+            text=text,
+            model_id="eleven_multilingual_v2",
+            voice_settings=VoiceSettings(
+                stability=0.5,
+                similarity_boost=0.5,
+                style=0.0,
+                use_speaker_boost=True,
+            ),
+        )
+
+        audio_stream = BytesIO()
+        for chunk in response:
+            if chunk:
+                audio_stream.write(chunk)
+        audio_stream.seek(0)
+        
+        with open("response.mp3", "wb") as f:
+            f.write(audio_stream.read())
+        
+        vc.play(discord.FFmpegPCMAudio("response.mp3"))
+        while vc.is_playing():
+            await asyncio.sleep(1)
+        return True
+    except Exception as e:
+        print(f"Erreur lors de l'utilisation de ElevenLabs TTS: {e}")
+        return False
+
+async def basic_tts(vc, text):
+    engine.save_to_file(text, "response.mp3")
+    engine.runAndWait()
+    vc.play(discord.FFmpegPCMAudio("response.mp3"))
+    while vc.is_playing():
+        await asyncio.sleep(1)
 
 async def process_request_queue():
     while True:
@@ -55,14 +103,21 @@ async def listen(ctx):
                 bot.listening_channels[channel.id] = {
                     "messages": [],
                     "mode": "streaming",
+                    "tts_mode": "elevenlabs",
+                    "elevenlabs_voice_id": default_elevenlabs_voice_id
                 }
                 await ctx.send(f"Je vais maintenant écouter le salon {channel.mention}")
 
+                # Vérification si le canal texte est associé à un canal vocal
+                guild = ctx.guild
+                voice_channel = discord.utils.get(guild.voice_channels, id=channel_id)
                 if voice_channel:
                     vc = await voice_channel.connect()
                     bot.listening_channels[channel.id]["voice_client"] = vc
                     voice_queues[vc.channel.id] = asyncio.Queue()
-
+                    await ctx.send(f"Le bot a rejoint le canal vocal {voice_channel.mention}")
+                else:
+                    await ctx.send("Le bot écoutera les messages textuels dans ce salon.")
             else:
                 await ctx.send(f"J'écoute déjà le salon {channel.mention}")
         except Exception as e:
@@ -139,6 +194,25 @@ async def set_voice(ctx, voice_index: int):
             f"Index de voix invalide. Veuillez choisir un index entre 0 et {len(voices) - 1}."
         )
 
+@bot.command(name="switch_tts")
+async def switch_tts(ctx):
+    channel_id = ctx.channel.id
+    if channel_id in bot.listening_channels:
+        current_mode = bot.listening_channels[channel_id]["tts_mode"]
+        new_mode = "basic" if current_mode == "elevenlabs" else "elevenlabs"
+        bot.listening_channels[channel_id]["tts_mode"] = new_mode
+        await ctx.send(f"Le mode TTS pour ce canal est maintenant : {new_mode}")
+    else:
+        await ctx.send(f"Je n'écoute pas le salon {ctx.channel.mention}")
+
+@bot.command(name="set_elevenlabs_voice")
+async def set_elevenlabs_voice(ctx, voice_id: str):
+    channel_id = ctx.channel.id
+    if channel_id in bot.listening_channels:
+        bot.listening_channels[channel_id]["elevenlabs_voice_id"] = voice_id
+        await ctx.send(f"Le voice_id ElevenLabs pour ce canal est maintenant : {voice_id}")
+    else:
+        await ctx.send(f"Je n'écoute pas le salon {ctx.channel.mention}")
 
 @bot.event
 async def on_message(message):
@@ -305,11 +379,13 @@ async def process_voice_queue(vc):
     queue = voice_queues[vc.channel.id]
     while not queue.empty():
         text = await queue.get()
-        engine.save_to_file(text, "response.mp3")
-        engine.runAndWait()
-        vc.play(discord.FFmpegPCMAudio("response.mp3"))
-        while vc.is_playing():
-            await asyncio.sleep(1)
+        tts_mode = bot.listening_channels[vc.channel.id].get("tts_mode", "elevenlabs")
+        if tts_mode == "elevenlabs":
+            success = await elevenlabs_tts(vc, text)
+            if not success:
+                await basic_tts(vc, text)
+        else:
+            await basic_tts(vc, text)
         queue.task_done()
 
 
