@@ -82,7 +82,6 @@ async def process_request_queue():
         finally:
             request_queue.task_done()
 
-
 @bot.event
 async def on_ready():
     print(f"Bot connecté en tant que {bot.user.name}")
@@ -91,39 +90,56 @@ async def on_ready():
     await create_model()
     bot.loop.create_task(process_request_queue())
 
-
 @bot.command(name="listen")
 async def listen(ctx):
     channel_id = ctx.channel.id
     channel = bot.get_channel(channel_id)
-    voice_channel = ctx.author.voice.channel if ctx.author.voice else None
-    if channel:
-        try:
-            if channel.id not in bot.listening_channels:
-                bot.listening_channels[channel.id] = {
-                    "messages": [],
-                    "mode": "streaming",
-                    "tts_mode": "elevenlabs",
-                    "elevenlabs_voice_id": default_elevenlabs_voice_id
-                }
-                await ctx.send(f"Je vais maintenant écouter le salon {channel.mention}")
-
-                # Vérification si le canal texte est associé à un canal vocal
-                guild = ctx.guild
-                voice_channel = discord.utils.get(guild.voice_channels, id=channel_id)
-                if voice_channel:
-                    vc = await voice_channel.connect()
-                    bot.listening_channels[channel.id]["voice_client"] = vc
-                    voice_queues[vc.channel.id] = asyncio.Queue()
-                    await ctx.send(f"Le bot a rejoint le canal vocal {voice_channel.mention}")
+    
+    if isinstance(ctx.channel, discord.TextChannel):
+        # Listening to a text channel
+        if channel:
+            try:
+                if channel.id not in bot.listening_channels:
+                    bot.listening_channels[channel.id] = {
+                        "messages": [],
+                        "mode": "streaming",
+                        "tts_mode": "elevenlabs",
+                        "elevenlabs_voice_id": default_elevenlabs_voice_id
+                    }
+                    await ctx.send(f"Je vais maintenant écouter le salon {channel.mention} pour les messages textuels.")
                 else:
-                    await ctx.send("Le bot écoutera les messages textuels dans ce salon.")
-            else:
-                await ctx.send(f"J'écoute déjà le salon {channel.mention}")
-        except Exception as e:
-            await ctx.send(f"Une erreur inattendue est survenue: {str(e)}")
+                    await ctx.send(f"J'écoute déjà le salon {channel.mention}")
+            except Exception as e:
+                await ctx.send(f"Une erreur inattendue est survenue: {str(e)}")
+        else:
+            await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
+
+    elif isinstance(ctx.channel, discord.VoiceChannel):
+        # Listening to a voice channel
+        voice_channel = ctx.channel
+        if voice_channel:
+            try:
+                if voice_channel.id not in bot.listening_channels:
+                    bot.listening_channels[voice_channel.id] = {
+                        "messages": [],
+                        "mode": "streaming",
+                        "tts_mode": "elevenlabs",
+                        "elevenlabs_voice_id": default_elevenlabs_voice_id
+                    }
+                    vc = await voice_channel.connect()
+                    bot.listening_channels[voice_channel.id]["voice_client"] = vc
+                    voice_queues[vc.channel.id] = asyncio.Queue()
+                    await ctx.send(f"Le bot a rejoint le canal vocal {voice_channel.mention} et écoutera maintenant.")
+                else:
+                    await ctx.send(f"J'écoute déjà le canal vocal {voice_channel.mention}")
+            except Exception as e:
+                await ctx.send(f"Une erreur inattendue est survenue: {str(e)}")
+        else:
+            await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
     else:
-        await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
+        await ctx.send("Cette commande doit être exécutée dans un canal texte ou vocal.")
+
+
 
 
 @bot.command(name="pause_listen")
@@ -142,7 +158,6 @@ async def pause_listen(ctx):
             await ctx.send(f"Je n'écoutais pas le salon {channel.mention}")
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
-
 
 @bot.command(name="stop_listen")
 async def stop_listen(ctx):
@@ -164,7 +179,6 @@ async def stop_listen(ctx):
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
 
-
 @bot.command(name="set_mode")
 async def set_mode(ctx, mode: str):
     channel_id = ctx.channel.id
@@ -182,7 +196,6 @@ async def set_mode(ctx, mode: str):
             await ctx.send("Mode invalide. Utilisez 'streaming' ou 'non-streaming'.")
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
-
 
 @bot.command(name="set_voice")
 async def set_voice(ctx, voice_index: int):
@@ -216,7 +229,7 @@ async def set_elevenlabs_voice(ctx, voice_id: str):
 
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
+    if message.author.bot:
         return
 
     if (
@@ -233,14 +246,12 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-
 async def process_message(user_name, prompt, channel_id):
     mode = bot.listening_channels[channel_id].get("mode", "streaming")
     if mode == "streaming":
         await stream_response(user_name, prompt, channel_id)
     else:
         await generate_response(user_name, prompt, channel_id)
-
 
 async def generate_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
@@ -279,7 +290,6 @@ async def generate_response(user_name, prompt, channel_id):
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
-
 
 async def stream_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
@@ -325,7 +335,6 @@ async def stream_response(user_name, prompt, channel_id):
                                 accumulated_response += content
                                 buffer += content
 
-                                # limit the calls to discord api
                                 if len(buffer) >= 200:
                                     message_content += buffer
                                     if len(message_content) > 2000:
@@ -365,7 +374,6 @@ async def stream_response(user_name, prompt, channel_id):
                 f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
             )
 
-
 async def queue_tts_response(text, channel_id):
     vc = bot.listening_channels[channel_id].get("voice_client")
     if vc:
@@ -373,7 +381,6 @@ async def queue_tts_response(text, channel_id):
         await queue.put(text)
         if queue.qsize() == 1:
             await process_voice_queue(vc)
-
 
 async def process_voice_queue(vc):
     queue = voice_queues[vc.channel.id]
@@ -388,7 +395,6 @@ async def process_voice_queue(vc):
             await basic_tts(vc, text)
         queue.task_done()
 
-
 async def clear_voice_queue(channel_id):
     if channel_id in voice_queues:
         queue = voice_queues[channel_id]
@@ -396,12 +402,10 @@ async def clear_voice_queue(channel_id):
             queue.get_nowait()
             queue.task_done()
 
-
 async def save_context(channel_id, context):
     with open(f"context_{channel_id}.txt", "w") as file:
         file.write(json.dumps(context))
     return
-
 
 async def load_context(channel_id):
     try:
@@ -410,11 +414,9 @@ async def load_context(channel_id):
     except FileNotFoundError:
         return []
 
-
 async def destroy_model():
     try:
         async with aiohttp.ClientSession() as session:
-            # Supprimer le modèle existant s'il existe
             async with session.delete(
                 "http://localhost:11434/api/delete", json={"name": "RobotBleu"}
             ) as response:
@@ -426,12 +428,9 @@ async def destroy_model():
                     print(
                         f"Erreur lors de la suppression du modèle : {response.status}"
                     )
-
-            # Créer le nouveau modèle
     except Exception as e:
         print(f"Erreur lors de la création du modèle : {e}")
     return
-
 
 async def create_model():
     try:
@@ -450,13 +449,11 @@ async def create_model():
         print(f"Erreur lors de la création du modèle : {e}")
     return
 
-
 @bot.command(name="refresh_model")
 async def refresh_model(ctx):
     await destroy_model()
     await create_model()
     await ctx.send("Le modèle RobotBleu a été rafraîchi.")
-
 
 with open("token.txt", "r") as file:
     token = file.read().strip()
