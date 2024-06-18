@@ -435,14 +435,14 @@ async def clear_voice_queue(channel_id):
 
 
 async def save_context(channel_id, context):
-    with open(f"context_{channel_id}.txt", "w") as file:
+    with open(f"data/context_{channel_id}.txt", "w") as file:
         file.write(json.dumps(context))
     return
 
 
 async def load_context(channel_id):
     try:
-        with open(f"context_{channel_id}.txt", "r") as file:
+        with open(f"data/context_{channel_id}.txt", "r") as file:
             return json.loads(file.read())
     except FileNotFoundError:
         return []
