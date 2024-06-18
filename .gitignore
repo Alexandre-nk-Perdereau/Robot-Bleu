@@ -1,3 +1,5 @@
 *token.txt
 context*txt
 *.gguf
+.env
+*.lock

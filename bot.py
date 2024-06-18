@@ -7,6 +7,12 @@ import pyttsx3
 from elevenlabs.client import ElevenLabs
 from elevenlabs import VoiceSettings
 from io import BytesIO
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+elevenlabs_token = os.getenv("ELEVENLABS_TOKEN")
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -26,15 +32,16 @@ voices = engine.getProperty("voices")
 # Set default voice
 engine.setProperty("voice", voices[0].id)
 
-with open("elevenlabtoken.txt", "r") as file:
-    elevenlabs_token = file.read().strip()
 
 default_elevenlabs_voice_id = "silVg69rhFXHR4yyKTiS"
 
 elevenlabs_client = ElevenLabs(api_key=elevenlabs_token)
 
+
 async def elevenlabs_tts(vc, text):
-    voice_id = bot.listening_channels[vc.channel.id].get("elevenlabs_voice_id", default_elevenlabs_voice_id)
+    voice_id = bot.listening_channels[vc.channel.id].get(
+        "elevenlabs_voice_id", default_elevenlabs_voice_id
+    )
     try:
         response = elevenlabs_client.text_to_speech.convert(
             voice_id=voice_id,
@@ -53,10 +60,10 @@ async def elevenlabs_tts(vc, text):
             if chunk:
                 audio_stream.write(chunk)
         audio_stream.seek(0)
-        
+
         with open("response.mp3", "wb") as f:
             f.write(audio_stream.read())
-        
+
         vc.play(discord.FFmpegPCMAudio("response.mp3"))
         while vc.is_playing():
             await asyncio.sleep(1)
@@ -65,12 +72,14 @@ async def elevenlabs_tts(vc, text):
         print(f"Erreur lors de l'utilisation de ElevenLabs TTS: {e}")
         return False
 
+
 async def basic_tts(vc, text):
     engine.save_to_file(text, "response.mp3")
     engine.runAndWait()
     vc.play(discord.FFmpegPCMAudio("response.mp3"))
     while vc.is_playing():
         await asyncio.sleep(1)
+
 
 async def process_request_queue():
     while True:
@@ -82,6 +91,7 @@ async def process_request_queue():
         finally:
             request_queue.task_done()
 
+
 @bot.event
 async def on_ready():
     print(f"Bot connecté en tant que {bot.user.name}")
@@ -90,11 +100,12 @@ async def on_ready():
     await create_model()
     bot.loop.create_task(process_request_queue())
 
+
 @bot.command(name="listen")
 async def listen(ctx):
     channel_id = ctx.channel.id
     channel = bot.get_channel(channel_id)
-    
+
     if isinstance(ctx.channel, discord.TextChannel):
         # Listening to a text channel
         if channel:
@@ -104,9 +115,11 @@ async def listen(ctx):
                         "messages": [],
                         "mode": "streaming",
                         "tts_mode": "elevenlabs",
-                        "elevenlabs_voice_id": default_elevenlabs_voice_id
+                        "elevenlabs_voice_id": default_elevenlabs_voice_id,
                     }
-                    await ctx.send(f"Je vais maintenant écouter le salon {channel.mention} pour les messages textuels.")
+                    await ctx.send(
+                        f"Je vais maintenant écouter le salon {channel.mention} pour les messages textuels."
+                    )
                 else:
                     await ctx.send(f"J'écoute déjà le salon {channel.mention}")
             except Exception as e:
@@ -124,22 +137,26 @@ async def listen(ctx):
                         "messages": [],
                         "mode": "streaming",
                         "tts_mode": "elevenlabs",
-                        "elevenlabs_voice_id": default_elevenlabs_voice_id
+                        "elevenlabs_voice_id": default_elevenlabs_voice_id,
                     }
                     vc = await voice_channel.connect()
                     bot.listening_channels[voice_channel.id]["voice_client"] = vc
                     voice_queues[vc.channel.id] = asyncio.Queue()
-                    await ctx.send(f"Le bot a rejoint le canal vocal {voice_channel.mention} et écoutera maintenant.")
+                    await ctx.send(
+                        f"Le bot a rejoint le canal vocal {voice_channel.mention} et écoutera maintenant."
+                    )
                 else:
-                    await ctx.send(f"J'écoute déjà le canal vocal {voice_channel.mention}")
+                    await ctx.send(
+                        f"J'écoute déjà le canal vocal {voice_channel.mention}"
+                    )
             except Exception as e:
                 await ctx.send(f"Une erreur inattendue est survenue: {str(e)}")
         else:
             await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
     else:
-        await ctx.send("Cette commande doit être exécutée dans un canal texte ou vocal.")
-
-
+        await ctx.send(
+            "Cette commande doit être exécutée dans un canal texte ou vocal."
+        )
 
 
 @bot.command(name="pause_listen")
@@ -158,6 +175,7 @@ async def pause_listen(ctx):
             await ctx.send(f"Je n'écoutais pas le salon {channel.mention}")
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
+
 
 @bot.command(name="stop_listen")
 async def stop_listen(ctx):
@@ -179,6 +197,7 @@ async def stop_listen(ctx):
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
 
+
 @bot.command(name="set_mode")
 async def set_mode(ctx, mode: str):
     channel_id = ctx.channel.id
@@ -197,6 +216,7 @@ async def set_mode(ctx, mode: str):
     else:
         await ctx.send("Erreur : Le canal spécifié n'a pas été trouvé.")
 
+
 @bot.command(name="set_voice")
 async def set_voice(ctx, voice_index: int):
     try:
@@ -206,6 +226,7 @@ async def set_voice(ctx, voice_index: int):
         await ctx.send(
             f"Index de voix invalide. Veuillez choisir un index entre 0 et {len(voices) - 1}."
         )
+
 
 @bot.command(name="switch_tts")
 async def switch_tts(ctx):
@@ -218,14 +239,18 @@ async def switch_tts(ctx):
     else:
         await ctx.send(f"Je n'écoute pas le salon {ctx.channel.mention}")
 
+
 @bot.command(name="set_elevenlabs_voice")
 async def set_elevenlabs_voice(ctx, voice_id: str):
     channel_id = ctx.channel.id
     if channel_id in bot.listening_channels:
         bot.listening_channels[channel_id]["elevenlabs_voice_id"] = voice_id
-        await ctx.send(f"Le voice_id ElevenLabs pour ce canal est maintenant : {voice_id}")
+        await ctx.send(
+            f"Le voice_id ElevenLabs pour ce canal est maintenant : {voice_id}"
+        )
     else:
         await ctx.send(f"Je n'écoute pas le salon {ctx.channel.mention}")
+
 
 @bot.event
 async def on_message(message):
@@ -246,12 +271,14 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+
 async def process_message(user_name, prompt, channel_id):
     mode = bot.listening_channels[channel_id].get("mode", "streaming")
     if mode == "streaming":
         await stream_response(user_name, prompt, channel_id)
     else:
         await generate_response(user_name, prompt, channel_id)
+
 
 async def generate_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
@@ -290,6 +317,7 @@ async def generate_response(user_name, prompt, channel_id):
         except Exception as e:
             print(f"Erreur lors de l'appel à Ollama : {e}")
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
+
 
 async def stream_response(user_name, prompt, channel_id):
     async with aiohttp.ClientSession() as session:
@@ -374,6 +402,7 @@ async def stream_response(user_name, prompt, channel_id):
                 f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
             )
 
+
 async def queue_tts_response(text, channel_id):
     vc = bot.listening_channels[channel_id].get("voice_client")
     if vc:
@@ -381,6 +410,7 @@ async def queue_tts_response(text, channel_id):
         await queue.put(text)
         if queue.qsize() == 1:
             await process_voice_queue(vc)
+
 
 async def process_voice_queue(vc):
     queue = voice_queues[vc.channel.id]
@@ -395,6 +425,7 @@ async def process_voice_queue(vc):
             await basic_tts(vc, text)
         queue.task_done()
 
+
 async def clear_voice_queue(channel_id):
     if channel_id in voice_queues:
         queue = voice_queues[channel_id]
@@ -402,10 +433,12 @@ async def clear_voice_queue(channel_id):
             queue.get_nowait()
             queue.task_done()
 
+
 async def save_context(channel_id, context):
     with open(f"context_{channel_id}.txt", "w") as file:
         file.write(json.dumps(context))
     return
+
 
 async def load_context(channel_id):
     try:
@@ -413,6 +446,7 @@ async def load_context(channel_id):
             return json.loads(file.read())
     except FileNotFoundError:
         return []
+
 
 async def destroy_model():
     try:
@@ -432,6 +466,7 @@ async def destroy_model():
         print(f"Erreur lors de la création du modèle : {e}")
     return
 
+
 async def create_model():
     try:
         with open("Robot Bleu.txt", "r") as file:
@@ -449,13 +484,17 @@ async def create_model():
         print(f"Erreur lors de la création du modèle : {e}")
     return
 
+
 @bot.command(name="refresh_model")
 async def refresh_model(ctx):
     await destroy_model()
     await create_model()
     await ctx.send("Le modèle RobotBleu a été rafraîchi.")
 
-with open("token.txt", "r") as file:
-    token = file.read().strip()
 
-bot.run(token)
+
+def main():
+    bot.run(os.getenv("DISCORD_TOKEN"))
+
+if __name__ == "__main__":
+    main()
