@@ -3,3 +3,8 @@ context*txt
 *.gguf
 .env
 *.lock
+__pycache__*
+
+
+# for a future feature, not yet pushed
+model/*   
