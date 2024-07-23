@@ -94,7 +94,6 @@ async def generate_groq_response(user_name, prompt, channel_id, bot):
             "temperature": 0.7,
             "max_tokens": 1000,
         }
-        print(payload)
         
         headers = {
             "Authorization": f"Bearer {GROQCLOUD_TOKEN}",
