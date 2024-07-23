@@ -1,13 +1,39 @@
 import asyncio
 import aiohttp
 import json
+import os
 from robot_bleu.cogs.tts import TTS
-from robot_bleu.config import MAX_CONTEXT_LENGTH
+from robot_bleu.config import MAX_CONTEXT_LENGTH, MODE, GROQCLOUD_TOKEN, GROQCLOUD_MODEL
 from robot_bleu.utils.context_management import save_context
+import re
 
 request_queue = asyncio.Queue()
 voice_queues = {}
 
+robot_bleu_path = os.path.join(os.path.dirname(__file__), "..", "..", "Robot Bleu.txt")
+
+
+def extract_system_message(file_path):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+            
+            system_message_match = re.search(r'SYSTEM\s*"""(.*?)"""', content, re.DOTALL)
+            
+            if system_message_match:
+                return system_message_match.group(1).strip()
+            else:
+                print("Aucun message système trouvé dans le fichier.")
+                return None
+    except FileNotFoundError:
+        print(f"Le fichier {file_path} n'a pas été trouvé.")
+        return None
+    except Exception as e:
+        print(f"Une erreur s'est produite lors de la lecture du fichier : {e}")
+        return None
+
+system_message = extract_system_message(robot_bleu_path)
+print(system_message)
 
 async def process_request_queue(bot):
     while True:
@@ -19,13 +45,81 @@ async def process_request_queue(bot):
         finally:
             request_queue.task_done()
 
-
 async def process_message(user_name, prompt, channel_id, bot):
     mode = bot.listening_channels[channel_id].get("mode", "streaming")
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        print(f"Erreur : le canal spécifié n'a pas été trouvé. ID: {channel_id}")
+        return
+
     if mode == "streaming":
-        await stream_response(user_name, prompt, channel_id, bot)
+        if MODE == "ollama_mode":
+            await stream_response(user_name, prompt, channel_id, bot)
+        elif MODE == "groqCloud_mode":
+            content = await generate_groq_response(user_name, prompt, channel_id, bot)
+            await send_response(channel, content)
     else:
-        await generate_response(user_name, prompt, channel_id, bot)
+        if MODE == "ollama_mode":
+            content = await generate_response(user_name, prompt, channel_id, bot)
+            await send_response(channel, content)
+        elif MODE == "groqCloud_mode":
+            content = await generate_groq_response(user_name, prompt, channel_id, bot)
+            await send_response(channel, content)
+
+async def send_response(channel, content):
+    if content:
+        chunks = [content[i:i+2000] for i in range(0, len(content), 2000)]
+        for chunk in chunks:
+            await channel.send(chunk)
+
+async def generate_groq_response(user_name, prompt, channel_id, bot):
+    async with aiohttp.ClientSession() as session:
+        if "messages" not in bot.listening_channels[channel_id]:
+            bot.listening_channels[channel_id]["messages"] = []
+
+
+        bot.listening_channels[channel_id]["messages"].append(
+            {"role": "user", "content": f"{user_name}: {prompt}"}
+        )
+        context_length = sum(
+            len(message["content"])
+            for message in bot.listening_channels[channel_id]["messages"]
+        )
+        while context_length > MAX_CONTEXT_LENGTH:
+            removed_message = bot.listening_channels[channel_id]["messages"].pop(0)
+            context_length -= len(removed_message["content"])
+        payload = {
+            "model": GROQCLOUD_MODEL,
+            "messages": [{"role": "system", "content": system_message}] + bot.listening_channels[channel_id]["messages"],
+            "temperature": 0.7,
+            "max_tokens": 1000,
+        }
+        print(payload)
+        
+        headers = {
+            "Authorization": f"Bearer {GROQCLOUD_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            async with session.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json=payload,
+                headers=headers
+            ) as response:
+                data = await response.json()
+                content = data["choices"][0]["message"]["content"]
+                bot.listening_channels[channel_id]["messages"].append(
+                    {"role": "assistant", "content": content}
+                )
+                await save_context(
+                    channel_id, bot.listening_channels[channel_id]["messages"]
+                )
+                await queue_tts_response(content, channel_id, bot)
+                return content
+        except Exception as e:
+            print(f"Erreur lors de l'appel à Groq Cloud : {e}")
+            return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
 
 
 async def generate_response(user_name, prompt, channel_id, bot):
