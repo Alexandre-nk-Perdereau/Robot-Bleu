@@ -20,5 +20,5 @@ INTENTS.messages = True
 INTENTS.message_content = True
 INTENTS.voice_states = True
 
-MAX_CONTEXT_LENGTH = 8192 * 2
+MAX_CONTEXT_LENGTH = 131072 * 2
 DEFAULT_ELEVENLABS_VOICE_ID = "silVg69rhFXHR4yyKTiS"

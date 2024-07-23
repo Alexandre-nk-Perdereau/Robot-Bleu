@@ -1,15 +1,13 @@
 # Modelfile
-FROM aya:8b-23-q8_0
-# FROM aya:35b-23-q4_0
-# FROM aya:8b-23-f16
-# FROM codestral:22b-v0.1-q6_K
-# FROM mistral:7b-instruct-v0.3-q8_0
-# FROM phi3:14b-medium-128k-instruct-q6_K
+
+# FROM gemma2:27b
+# FROM mistral-nemo:12b-instruct-2407-q8_0
+FROM llama3.1:8b-instruct-q8_0
 
 # set the temperature to 1 [higher is more creative, lower is more coherent]
 PARAMETER temperature 1
 
-PARAMETER num_ctx 8192
+PARAMETER num_ctx 131072
 
 # set the system message
 SYSTEM """
