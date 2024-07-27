@@ -70,7 +70,7 @@ async def send_response(channel, content):
     if content:
         chunks = [content[i:i+2000] for i in range(0, len(content), 2000)]
         for chunk in chunks:
-            await channel.send(chunk)
+            await channel.send(chunk.encode('utf-8').decode('utf-8'))
 
 async def generate_groq_response(user_name, prompt, channel_id, bot):
     async with aiohttp.ClientSession() as session:
