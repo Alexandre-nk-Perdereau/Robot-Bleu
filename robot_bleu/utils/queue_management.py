@@ -37,15 +37,15 @@ print(system_message)
 
 async def process_request_queue(bot):
     while True:
-        user_name, prompt, channel_id = await request_queue.get()
+        prompt, channel_id = await request_queue.get()
         try:
-            await process_message(user_name, prompt, channel_id, bot)
+            await process_message(prompt, channel_id, bot)
         except Exception as e:
             print(f"Erreur lors du traitement de la requête : {e}")
         finally:
             request_queue.task_done()
 
-async def process_message(user_name, prompt, channel_id, bot):
+async def process_message(prompt, channel_id, bot):
     mode = bot.listening_channels[channel_id].get("mode", "streaming")
     channel = bot.get_channel(channel_id)
     if not channel:
@@ -54,16 +54,16 @@ async def process_message(user_name, prompt, channel_id, bot):
 
     if mode == "streaming":
         if MODE == "ollama_mode":
-            await stream_response(user_name, prompt, channel_id, bot)
+            await stream_response(prompt, channel_id, bot)
         elif MODE == "groqCloud_mode":
-            content = await generate_groq_response(user_name, prompt, channel_id, bot)
+            content = await generate_groq_response(prompt, channel_id, bot)
             await send_response(channel, content)
     else:
         if MODE == "ollama_mode":
-            content = await generate_response(user_name, prompt, channel_id, bot)
+            content = await generate_response(prompt, channel_id, bot)
             await send_response(channel, content)
         elif MODE == "groqCloud_mode":
-            content = await generate_groq_response(user_name, prompt, channel_id, bot)
+            content = await generate_groq_response(prompt, channel_id, bot)
             await send_response(channel, content)
 
 async def send_response(channel, content):
@@ -72,14 +72,14 @@ async def send_response(channel, content):
         for chunk in chunks:
             await channel.send(chunk.encode('utf-8').decode('utf-8'))
 
-async def generate_groq_response(user_name, prompt, channel_id, bot):
+async def generate_groq_response(prompt, channel_id, bot):
     async with aiohttp.ClientSession() as session:
         if "messages" not in bot.listening_channels[channel_id]:
             bot.listening_channels[channel_id]["messages"] = []
 
 
         bot.listening_channels[channel_id]["messages"].append(
-            {"role": "user", "content": f"{user_name}: {prompt}"}
+            {"role": "user", "content": prompt}
         )
         context_length = sum(
             len(message["content"])
@@ -94,12 +94,12 @@ async def generate_groq_response(user_name, prompt, channel_id, bot):
             "temperature": 0.7,
             "max_tokens": 1000,
         }
-        
+
         headers = {
             "Authorization": f"Bearer {GROQCLOUD_TOKEN}",
             "Content-Type": "application/json"
         }
-        
+
         try:
             async with session.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -120,11 +120,10 @@ async def generate_groq_response(user_name, prompt, channel_id, bot):
             print(f"Erreur lors de l'appel à Groq Cloud : {e}")
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
 
-
-async def generate_response(user_name, prompt, channel_id, bot):
+async def generate_response(prompt, channel_id, bot):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id]["messages"].append(
-            {"role": "user", "content": f"{user_name}: {prompt}"}
+            {"role": "user", "content": prompt}
         )
 
         context_length = sum(
@@ -160,10 +159,10 @@ async def generate_response(user_name, prompt, channel_id, bot):
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
 
 
-async def stream_response(user_name, prompt, channel_id, bot):
+async def stream_response(prompt, channel_id, bot):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id]["messages"].append(
-            {"role": "user", "content": f"{user_name}: {prompt}"}
+            {"role": "user", "content": prompt}
         )
 
         context_length = sum(

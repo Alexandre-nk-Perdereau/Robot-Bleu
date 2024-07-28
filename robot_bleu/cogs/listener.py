@@ -8,8 +8,8 @@ from robot_bleu.utils.queue_management import (
     clear_voice_queue,
 )
 from robot_bleu.config import DEFAULT_ELEVENLABS_VOICE_ID
+from robot_bleu.utils.file_extensions import TEXT_FILE_EXTENSIONS
 import asyncio
-
 
 class Listener(commands.Cog):
     def __init__(self, bot):
@@ -136,10 +136,31 @@ class Listener(commands.Cog):
             return
 
         if message.channel.id in self.bot.listening_channels:
+            content = await self.process_message_with_attachments(message)
             await request_queue.put(
-                (message.author.name, message.content, message.channel.id)
+                (content, message.channel.id)
             )
 
+    async def process_message_with_attachments(self, message):
+        content = ""
+        if message.attachments:
+            attachment_names = [att.filename for att in message.attachments]
+            content += f"{message.author.name} a joint à son message {', '.join(attachment_names)}.\n\n"
+
+            for attachment in message.attachments:
+                if any(attachment.filename.endswith(ext) for ext in TEXT_FILE_EXTENSIONS):
+                    file_content = await self.get_attachment_content(attachment)
+                    content += f"**{attachment.filename}:** {file_content}\n\n"
+
+        content += f"**{message.author.name}:** {message.content}"
+        return content
+
+    async def get_attachment_content(self, attachment):
+        try:
+            content = await attachment.read()
+            return content.decode('utf-8')
+        except UnicodeDecodeError:
+            return "[Contenu binaire non affichable]"
 
 async def setup(bot):
     await bot.add_cog(Listener(bot))
