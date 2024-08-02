@@ -5,7 +5,7 @@ FROM mistral-nemo:12b-instruct-2407-q8_0
 # FROM llama3.1:8b-instruct-q8_0
 
 # set the temperature to 1 [higher is more creative, lower is more coherent]
-PARAMETER temperature 1
+PARAMETER temperature 0.5
 
 PARAMETER num_ctx 131072
 

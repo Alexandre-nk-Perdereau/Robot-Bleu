@@ -1,6 +1,6 @@
 import aiohttp
 from discord.ext import commands
-
+from robot_bleu.config import OLLAMA_HOST, OLLAMA_MODEL, OLLAMA_CONTEXT_SIZE
 
 class ModelManagement(commands.Cog):
     def __init__(self, bot):
@@ -12,17 +12,29 @@ class ModelManagement(commands.Cog):
         await create_model()
         await ctx.send("Le modèle RobotBleu a été rafraîchi.")
 
+    @commands.command(name="switch_ollama")
+    async def switch_ollama(self, ctx, new_host: str = None, new_model: str = None, new_context_size: int = None):
+        global OLLAMA_HOST, OLLAMA_MODEL, OLLAMA_CONTEXT_SIZE
+        
+        if new_host:
+            OLLAMA_HOST = new_host
+        if new_model:
+            OLLAMA_MODEL = new_model
+        if new_context_size:
+            OLLAMA_CONTEXT_SIZE = new_context_size
+        
+        await ctx.send(f"Configuration Ollama mise à jour. Host: {OLLAMA_HOST}, Modèle: {OLLAMA_MODEL}, Context Size: {OLLAMA_CONTEXT_SIZE}")
 
 async def destroy_model():
     try:
         async with aiohttp.ClientSession() as session:
             async with session.delete(
-                "http://localhost:11434/api/delete", json={"name": "RobotBleu"}
+                f"{OLLAMA_HOST}/api/delete", json={"name": OLLAMA_MODEL}
             ) as response:
                 if response.status == 200:
-                    print("Modèle RobotBleu supprimé avec succès")
+                    print(f"Modèle {OLLAMA_MODEL} supprimé avec succès")
                 elif response.status == 404:
-                    print("Le modèle RobotBleu n'existait pas")
+                    print(f"Le modèle {OLLAMA_MODEL} n'existait pas")
                 else:
                     print(
                         f"Erreur lors de la suppression du modèle : {response.status}"
@@ -36,12 +48,12 @@ async def create_model():
         with open("Robot Bleu.txt", "r") as file:
             modelfile = file.read()
         async with aiohttp.ClientSession() as session:
-            payload = {"name": "RobotBleu", "modelfile": modelfile, "stream": False}
+            payload = {"name": OLLAMA_MODEL, "modelfile": modelfile, "stream": False}
             async with session.post(
-                "http://localhost:11434/api/create", json=payload
+                f"{OLLAMA_HOST}/api/create", json=payload
             ) as response:
                 if response.status == 200:
-                    print("Modèle RobotBleu créé avec succès")
+                    print(f"Modèle {OLLAMA_MODEL} créé avec succès")
                 else:
                     print(f"Erreur lors de la création du modèle : {response.status}")
     except Exception as e:

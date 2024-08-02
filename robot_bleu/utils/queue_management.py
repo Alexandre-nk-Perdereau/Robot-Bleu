@@ -3,7 +3,7 @@ import aiohttp
 import json
 import os
 from robot_bleu.cogs.tts import TTS
-from robot_bleu.config import MAX_CONTEXT_LENGTH, MODE, GROQCLOUD_TOKEN, GROQCLOUD_MODEL
+from robot_bleu.config import MODE, GROQCLOUD_TOKEN, GROQCLOUD_MODEL, OLLAMA_HOST, OLLAMA_MODEL, OLLAMA_CONTEXT_SIZE
 from robot_bleu.utils.context_management import save_context
 import re
 
@@ -125,24 +125,21 @@ async def generate_response(prompt, channel_id, bot):
         bot.listening_channels[channel_id]["messages"].append(
             {"role": "user", "content": prompt}
         )
-
         context_length = sum(
             len(message["content"])
             for message in bot.listening_channels[channel_id]["messages"]
         )
-
-        while context_length > MAX_CONTEXT_LENGTH:
+        while context_length > OLLAMA_CONTEXT_SIZE:
             removed_message = bot.listening_channels[channel_id]["messages"].pop(0)
             context_length -= len(removed_message["content"])
-
         payload = {
-            "model": "RobotBleu",
+            "model": OLLAMA_MODEL,
             "messages": bot.listening_channels[channel_id]["messages"],
             "stream": False,
         }
         try:
             async with session.post(
-                "http://localhost:11434/api/chat", json=payload
+                f"{OLLAMA_HOST}/api/chat", json=payload
             ) as response:
                 data = await response.json()
                 bot.listening_channels[channel_id]["messages"].append(data["message"])
@@ -158,40 +155,33 @@ async def generate_response(prompt, channel_id, bot):
             print(f"Erreur lors de l'appel à Ollama : {e}")
             return f"Désolé, une erreur s'est produite lors de la génération de la réponse: {e}"
 
-
 async def stream_response(prompt, channel_id, bot):
     async with aiohttp.ClientSession() as session:
         bot.listening_channels[channel_id]["messages"].append(
             {"role": "user", "content": prompt}
         )
-
         context_length = sum(
             len(message["content"])
             for message in bot.listening_channels[channel_id]["messages"]
         )
-
-        while context_length > MAX_CONTEXT_LENGTH:
+        while context_length > OLLAMA_CONTEXT_SIZE:
             removed_message = bot.listening_channels[channel_id]["messages"].pop(0)
             context_length -= len(removed_message["content"])
-
         payload = {
-            "model": "RobotBleu",
+            "model": OLLAMA_MODEL,
             "messages": bot.listening_channels[channel_id]["messages"],
             "stream": True,
         }
-
         channel = bot.get_channel(channel_id)
         if not channel:
             print(f"Erreur : le canal spécifié n'a pas été trouvé. ID: {channel_id}")
             return
-
         try:
             current_message = await channel.send("Génération de la réponse en cours...")
             message_content = ""
             accumulated_response = ""
-
             async with session.post(
-                "http://localhost:11434/api/chat", json=payload
+                f"{OLLAMA_HOST}/api/chat", json=payload
             ) as response:
                 buffer = ""
                 async for line in response.content:
