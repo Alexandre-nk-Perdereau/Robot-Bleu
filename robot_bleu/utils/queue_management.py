@@ -237,18 +237,19 @@ async def queue_tts_response(text, channel_id, bot):
     vc = bot.listening_channels[channel_id].get("voice_client")
     if vc:
         queue = voice_queues[vc.channel.id]
-        await queue.put(text)
+        tts_mode = bot.listening_channels[channel_id].get("tts_mode", "elevenlabs")
+        elevenlabs_voice_id = bot.listening_channels[channel_id].get("elevenlabs_voice_id")
+        await queue.put((text, tts_mode, elevenlabs_voice_id))
         if queue.qsize() == 1:
-            await process_voice_queue(vc, bot)
+            await process_voice_queue(vc)
 
 
-async def process_voice_queue(vc, bot):
+async def process_voice_queue(vc):
     queue = voice_queues[vc.channel.id]
     while not queue.empty():
-        text = await queue.get()
-        tts_mode = bot.listening_channels[vc.channel.id].get("tts_mode", "elevenlabs")
+        text, tts_mode, elevenlabs_voice_id = await queue.get()
         if tts_mode == "elevenlabs":
-            success = await TTS.elevenlabs_tts(vc, text)
+            success = await TTS.elevenlabs_tts(vc, text, voice_id=elevenlabs_voice_id)
             if not success:
                 await TTS.basic_tts(vc, text)
         else:
