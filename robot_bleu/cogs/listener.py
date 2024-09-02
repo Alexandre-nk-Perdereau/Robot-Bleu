@@ -137,9 +137,7 @@ class Listener(commands.Cog):
 
         if message.channel.id in self.bot.listening_channels:
             content = await self.process_message_with_attachments(message)
-            await request_queue.put(
-                (content, message.channel.id)
-            )
+            await request_queue.put((content, message.channel.id))
 
     async def process_message_with_attachments(self, message):
         content = ""

@@ -13,7 +13,9 @@ GROQCLOUD_MODEL = config.get("GROQCLOUD_MODEL")
 
 OLLAMA_HOST = config.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = config.get("OLLAMA_MODEL", "RobotBleu")
-OLLAMA_CONTEXT_SIZE = int(config.get("OLLAMA_CONTEXT_SIZE", "131072"))
+MAX_CONTEXT_TOKEN_LENGTH = int(config.get("MAX_CONTEXT_TOKEN_LENGTH", "8192"))
+CEREBRAS_API_KEY = config.get("CEREBRAS_API_KEY")
+CEREBRAS_MODEL = config.get("CEREBRAS_MODEL", "llama3.1-8b")
 
 if not DISCORD_TOKEN or not ELEVENLABS_TOKEN:
     raise ValueError(
@@ -24,11 +26,15 @@ if MODE == "groqCloud_mode" and (not GROQCLOUD_TOKEN or not GROQCLOUD_MODEL):
     raise ValueError(
         "GROQCLOUD_TOKEN et GROQCLOUD_MODEL doivent être définis dans le fichier .env en mode groqCloud_mode"
     )
+if MODE == "cerebras_mode" and not CEREBRAS_API_KEY:
+    raise ValueError(
+        "CEREBRAS_API_KEY doit être défini dans le fichier .env en mode cerebras_mode"
+    )
 
 COMMAND_PREFIX = "$"
 INTENTS = discord.Intents.default()
 INTENTS.messages = True
 INTENTS.message_content = True
 INTENTS.voice_states = True
-MAX_CONTEXT_LENGTH = OLLAMA_CONTEXT_SIZE * 2
+MAX_CONTEXT_CHAR_LENGTH = MAX_CONTEXT_TOKEN_LENGTH * 2   # approximation 2 char per token
 DEFAULT_ELEVENLABS_VOICE_ID = "silVg69rhFXHR4yyKTiS"
