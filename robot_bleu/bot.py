@@ -43,7 +43,9 @@ class RobotBleu(discord.Client):
         log.info("Bot ready, agent loop started.")
 
     @staticmethod
-    async def _on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def _on_tree_error(
+        interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         if isinstance(error.__cause__, discord.NotFound):
             log.debug("Interaction expired (stale command), ignoring.")
             return
@@ -52,15 +54,19 @@ class RobotBleu(discord.Client):
     # -- Slash commands --
 
     def _register_commands(self) -> None:
-        @self.tree.command(name="bleu_on", description="Activer Robot Bleu sur ce serveur/canal")
+        @self.tree.command(
+            name="bleu_on", description="Activer Robot Bleu sur ce serveur/canal"
+        )
         @app_commands.describe(
             mode="server (tout le serveur) ou channel (ce canal seulement)",
             persona="Personnalite / persona du bot",
         )
-        @app_commands.choices(mode=[
-            app_commands.Choice(name="server", value="server"),
-            app_commands.Choice(name="channel", value="channel"),
-        ])
+        @app_commands.choices(
+            mode=[
+                app_commands.Choice(name="server", value="server"),
+                app_commands.Choice(name="channel", value="channel"),
+            ]
+        )
         async def bleu_on(
             interaction: discord.Interaction,
             mode: app_commands.Choice[str],
@@ -68,18 +74,26 @@ class RobotBleu(discord.Client):
         ) -> None:
             await interaction.response.defer(ephemeral=True)
             if interaction.guild is None:
-                await interaction.followup.send("Commande disponible uniquement dans un serveur.")
+                await interaction.followup.send(
+                    "Commande disponible uniquement dans un serveur."
+                )
                 return
 
             session_mode = SessionMode(mode.value)
-            channel_id = interaction.channel_id if session_mode == SessionMode.CHANNEL else None
+            channel_id = (
+                interaction.channel_id if session_mode == SessionMode.CHANNEL else None
+            )
             session = self.sessions.activate(
                 guild=interaction.guild,
                 mode=session_mode,
                 persona=persona,
                 channel_id=channel_id,
             )
-            scope = f"canal #{interaction.channel.name}" if session_mode == SessionMode.CHANNEL else "serveur"
+            scope = (
+                f"canal #{interaction.channel.name}"
+                if session_mode == SessionMode.CHANNEL
+                else "serveur"
+            )
             await interaction.followup.send(
                 f"Robot Bleu active en mode **{mode.value}** sur ce {scope}.",
             )
@@ -89,11 +103,15 @@ class RobotBleu(discord.Client):
         async def bleu_off(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
             if interaction.guild is None:
-                await interaction.followup.send("Commande disponible uniquement dans un serveur.")
+                await interaction.followup.send(
+                    "Commande disponible uniquement dans un serveur."
+                )
                 return
 
             # Try channel first, then server
-            removed = self.sessions.deactivate(interaction.guild.id, interaction.channel_id)
+            removed = self.sessions.deactivate(
+                interaction.guild.id, interaction.channel_id
+            )
             if not removed:
                 removed = self.sessions.deactivate(interaction.guild.id)
             if removed:
@@ -101,11 +119,15 @@ class RobotBleu(discord.Client):
             else:
                 await interaction.followup.send("Robot Bleu n'etait pas actif ici.")
 
-        @self.tree.command(name="bleu_status", description="Voir le statut de Robot Bleu")
+        @self.tree.command(
+            name="bleu_status", description="Voir le statut de Robot Bleu"
+        )
         async def bleu_status(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
             if interaction.guild is None:
-                await interaction.followup.send("Commande disponible uniquement dans un serveur.")
+                await interaction.followup.send(
+                    "Commande disponible uniquement dans un serveur."
+                )
                 return
 
             session = self.sessions.get(interaction.guild.id, interaction.channel_id)
@@ -116,12 +138,16 @@ class RobotBleu(discord.Client):
             else:
                 await interaction.followup.send("Robot Bleu n'est pas actif ici.")
 
-        @self.tree.command(name="bleu_persona", description="Changer le persona de Robot Bleu")
+        @self.tree.command(
+            name="bleu_persona", description="Changer le persona de Robot Bleu"
+        )
         @app_commands.describe(persona="Nouveau persona / system prompt")
         async def bleu_persona(interaction: discord.Interaction, persona: str) -> None:
             await interaction.response.defer(ephemeral=True)
             if interaction.guild is None:
-                await interaction.followup.send("Commande disponible uniquement dans un serveur.")
+                await interaction.followup.send(
+                    "Commande disponible uniquement dans un serveur."
+                )
                 return
 
             session = self.sessions.get(interaction.guild.id, interaction.channel_id)
@@ -132,11 +158,16 @@ class RobotBleu(discord.Client):
             else:
                 await interaction.followup.send("Robot Bleu n'est pas actif ici.")
 
-        @self.tree.command(name="bleu_clear", description="Effacer l'historique de conversation de Robot Bleu")
+        @self.tree.command(
+            name="bleu_clear",
+            description="Effacer l'historique de conversation de Robot Bleu",
+        )
         async def bleu_clear(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
             if interaction.guild is None:
-                await interaction.followup.send("Commande disponible uniquement dans un serveur.")
+                await interaction.followup.send(
+                    "Commande disponible uniquement dans un serveur."
+                )
                 return
 
             session = self.sessions.get(interaction.guild.id, interaction.channel_id)
@@ -148,11 +179,16 @@ class RobotBleu(discord.Client):
             else:
                 await interaction.followup.send("Robot Bleu n'est pas actif ici.")
 
-        @self.tree.command(name="bleu_history", description="Voir l'historique de conversation de Robot Bleu")
+        @self.tree.command(
+            name="bleu_history",
+            description="Voir l'historique de conversation de Robot Bleu",
+        )
         async def bleu_history(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
             if interaction.guild is None:
-                await interaction.followup.send("Commande disponible uniquement dans un serveur.")
+                await interaction.followup.send(
+                    "Commande disponible uniquement dans un serveur."
+                )
                 return
 
             session = self.sessions.get(interaction.guild.id, interaction.channel_id)
@@ -188,10 +224,38 @@ class RobotBleu(discord.Client):
     # -- Event listeners --
 
     TEXT_EXTENSIONS = {
-        ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml", ".html",
-        ".css", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log", ".sh", ".bat",
-        ".sql", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".hpp", ".rb", ".lua",
-        ".r", ".tex", ".rst", ".org",
+        ".txt",
+        ".md",
+        ".py",
+        ".js",
+        ".ts",
+        ".json",
+        ".csv",
+        ".xml",
+        ".html",
+        ".css",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".log",
+        ".sh",
+        ".bat",
+        ".sql",
+        ".rs",
+        ".go",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".rb",
+        ".lua",
+        ".r",
+        ".tex",
+        ".rst",
+        ".org",
     }
 
     async def on_message(self, message: discord.Message) -> None:
@@ -200,10 +264,20 @@ class RobotBleu(discord.Client):
         if message.guild is None:
             return
 
-        log.debug("on_message: %s in #%s (guild:%s, channel:%s)", message.author.display_name, message.channel.name, message.guild.id, message.channel.id)
+        log.debug(
+            "on_message: %s in #%s (guild:%s, channel:%s)",
+            message.author.display_name,
+            message.channel.name,
+            message.guild.id,
+            message.channel.id,
+        )
         session = self.sessions.get(message.guild.id, message.channel.id)
         if session is None or not session.enabled:
-            log.debug("on_message: no active session for guild:%s channel:%s", message.guild.id, message.channel.id)
+            log.debug(
+                "on_message: no active session for guild:%s channel:%s",
+                message.guild.id,
+                message.channel.id,
+            )
             return
 
         images_b64: list[dict[str, str]] = []
@@ -215,11 +289,20 @@ class RobotBleu(discord.Client):
                     data = await att.read()
                     b64 = base64.b64encode(data).decode()
                     images_b64.append({"mime": att.content_type, "base64": b64})
-                elif any(att.filename.lower().endswith(ext) for ext in self.TEXT_EXTENSIONS):
+                elif any(
+                    att.filename.lower().endswith(ext) for ext in self.TEXT_EXTENSIONS
+                ):
                     data = await att.read()
-                    text_files.append({"filename": att.filename, "content": data.decode("utf-8", errors="replace")})
+                    text_files.append(
+                        {
+                            "filename": att.filename,
+                            "content": data.decode("utf-8", errors="replace"),
+                        }
+                    )
             except Exception:
-                log.warning("Failed to download attachment %s", att.filename, exc_info=True)
+                log.warning(
+                    "Failed to download attachment %s", att.filename, exc_info=True
+                )
 
         session.push_event(
             "message",
@@ -231,15 +314,24 @@ class RobotBleu(discord.Client):
             images_b64=images_b64,
             text_files=text_files,
         )
-        log.debug("Event captured: %s in #%s (%d pending)", message.author.display_name, message.channel.name, len(session.events))
+        log.debug(
+            "Event captured: %s in #%s (%d pending)",
+            message.author.display_name,
+            message.channel.name,
+            len(session.events),
+        )
 
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User) -> None:
+    async def on_reaction_add(
+        self, reaction: discord.Reaction, user: discord.User
+    ) -> None:
         if user == self.user:
             return
         if reaction.message.guild is None:
             return
 
-        session = self.sessions.get(reaction.message.guild.id, reaction.message.channel.id)
+        session = self.sessions.get(
+            reaction.message.guild.id, reaction.message.channel.id
+        )
         if session is None or not session.enabled:
             return
 

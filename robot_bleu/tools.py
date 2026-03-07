@@ -92,6 +92,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
 ]
 
+
 async def execute_tool(
     bot: discord.Client,
     tool_name: str,

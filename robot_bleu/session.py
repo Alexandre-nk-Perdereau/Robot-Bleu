@@ -25,6 +25,7 @@ class SessionMode(Enum):
 @dataclass
 class Event:
     """A Discord event captured for the agent to process."""
+
     timestamp: float
     kind: str  # "message", "reaction_add", "reaction_remove", "member_join", ...
     data: dict[str, Any] = field(default_factory=dict)
@@ -33,6 +34,7 @@ class Event:
 @dataclass
 class Session:
     """An active agent session bound to a guild or channel."""
+
     mode: SessionMode
     guild_id: int
     channel_id: int | None  # None if server-wide
@@ -76,7 +78,9 @@ class Session:
             "enabled": self.enabled,
             "conversation_history": self.conversation_history,
         }
-        self._file_path().write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self._file_path().write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
 
     @classmethod
     def load(cls, path: Path) -> Session:

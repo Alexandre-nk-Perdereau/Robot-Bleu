@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 def _build_system_prompt(session: Session) -> str:
     parts = [session.persona]
-    parts.append(f"\nTu es sur le serveur Discord \"{session.guild_name}\".")
+    parts.append(f'\nTu es sur le serveur Discord "{session.guild_name}".')
     if session.channel_names:
         parts.append(f"Canaux disponibles: {', '.join(session.channel_names)}")
     parts.append(
@@ -62,12 +62,18 @@ def _build_events_content(events: list[Event]) -> list[dict[str, Any]]:
                 for img in ev.data.get("images_b64", []):
                     # Flush text before inserting image
                     if text_lines:
-                        content_parts.append({"type": "text", "text": "\n".join(text_lines)})
+                        content_parts.append(
+                            {"type": "text", "text": "\n".join(text_lines)}
+                        )
                         text_lines = []
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{img['mime']};base64,{img['base64']}"},
-                    })
+                    content_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{img['mime']};base64,{img['base64']}"
+                            },
+                        }
+                    )
 
             case "reaction_add":
                 user = ev.data.get("user", "?")
@@ -75,7 +81,9 @@ def _build_events_content(events: list[Event]) -> list[dict[str, Any]]:
                 channel = ev.data.get("channel_name", "?")
                 text_lines.append(f"[{ts}] #{channel} {user} a reagi avec {emoji}")
             case _:
-                text_lines.append(f"[{ts}] {ev.kind}: {json.dumps(ev.data, ensure_ascii=False)}")
+                text_lines.append(
+                    f"[{ts}] {ev.kind}: {json.dumps(ev.data, ensure_ascii=False)}"
+                )
 
     # Flush remaining text
     if text_lines:
@@ -85,6 +93,7 @@ def _build_events_content(events: list[Event]) -> list[dict[str, Any]]:
 
 
 _llm_was_down = False
+
 
 async def check_llm_available() -> bool:
     """Check if the vLLM server is reachable."""
@@ -149,7 +158,9 @@ async def run_agent_tick(
                 max_tokens=config.LLM_MAX_TOKENS,
             )
         except Exception:
-            log.exception("LLM call failed for session %s (round %d)", session.key, round_num)
+            log.exception(
+                "LLM call failed for session %s (round %d)", session.key, round_num
+            )
             if round_num == 0:
                 session.events = events + session.events
                 session.conversation_history.pop()
@@ -166,7 +177,10 @@ async def run_agent_tick(
                 {
                     "id": tc.id,
                     "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
                 }
                 for tc in assistant_msg.tool_calls
             ]
@@ -174,9 +188,18 @@ async def run_agent_tick(
 
         if not assistant_msg.tool_calls:
             if assistant_msg.content:
-                log.info("Session %s LLM said (no tool): %s", session.key, assistant_msg.content[:100])
+                log.info(
+                    "Session %s LLM said (no tool): %s",
+                    session.key,
+                    assistant_msg.content[:100],
+                )
             else:
-                log.warning("Session %s LLM returned empty response (round %d, finish_reason=%s)", session.key, round_num, choice.finish_reason)
+                log.warning(
+                    "Session %s LLM returned empty response (round %d, finish_reason=%s)",
+                    session.key,
+                    round_num,
+                    choice.finish_reason,
+                )
             break
 
         for tc in assistant_msg.tool_calls:
@@ -188,13 +211,17 @@ async def run_agent_tick(
 
             log.info("Session %s calling tool %s(%s)", session.key, fn_name, fn_args)
             result = await execute_tool(bot, fn_name, fn_args)
-            log.info("Session %s tool %s result: %s", session.key, fn_name, result[:500])
+            log.info(
+                "Session %s tool %s result: %s", session.key, fn_name, result[:500]
+            )
 
-            session.conversation_history.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result,
-            })
+            session.conversation_history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                }
+            )
 
         # do_nothing doesn't need a follow-up LLM call
         tool_names = {tc.function.name for tc in assistant_msg.tool_calls}
