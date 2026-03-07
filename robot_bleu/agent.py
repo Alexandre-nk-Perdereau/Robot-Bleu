@@ -175,6 +175,8 @@ async def run_agent_tick(
         if not assistant_msg.tool_calls:
             if assistant_msg.content:
                 log.info("Session %s LLM said (no tool): %s", session.key, assistant_msg.content[:100])
+            else:
+                log.warning("Session %s LLM returned empty response (round %d, finish_reason=%s)", session.key, round_num, choice.finish_reason)
             break
 
         for tc in assistant_msg.tool_calls:
@@ -186,6 +188,7 @@ async def run_agent_tick(
 
             log.info("Session %s calling tool %s(%s)", session.key, fn_name, fn_args)
             result = await execute_tool(bot, fn_name, fn_args)
+            log.info("Session %s tool %s result: %s", session.key, fn_name, result[:500])
 
             session.conversation_history.append({
                 "role": "tool",

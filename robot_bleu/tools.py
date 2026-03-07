@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 import discord
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 log = logging.getLogger(__name__)
 

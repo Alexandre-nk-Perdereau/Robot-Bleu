@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Bot Discord conversationnel agentique"
 requires-python = ">=3.12"
 dependencies = [
+    "ddgs>=9.11.2",
     "discord-py>=2.4",
-    "duckduckgo-search>=8.1.1",
     "httpx>=0.28.1",
     "openai>=2.26.0",
     "python-dotenv>=1.2.2",
@@ -13,3 +13,7 @@ dependencies = [
 
 [project.scripts]
 robot-bleu = "robot_bleu.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
