@@ -1,10 +1,7 @@
-*token.txt
-context*txt
-*.gguf
 .env
-*.lock
-__pycache__*
-
-
-# for a future feature, not yet pushed
-models/*   
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+data/
