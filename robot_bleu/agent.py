@@ -124,7 +124,12 @@ async def run_agent_tick(
     if not events:
         return
 
-    log.info("Session %s processing %d events", session.key, len(events))
+    log.info(
+        "Session %s processing %d events (thinking_budget=%d)",
+        session.key,
+        len(events),
+        config.LLM_MAX_THINKING_TOKENS,
+    )
 
     event_parts = _build_events_content(events)
     header = {"type": "text", "text": "Nouveaux evenements:"}
@@ -151,11 +156,21 @@ async def run_agent_tick(
         ]
 
         try:
+            if config.LLM_MAX_THINKING_TOKENS > 0:
+                extra = {
+                    "chat_template_kwargs": {"enable_thinking": True},
+                    "thinking_budget": config.LLM_MAX_THINKING_TOKENS,
+                }
+            else:
+                extra = {
+                    "chat_template_kwargs": {"enable_thinking": False},
+                }
             response = await llm_client.chat.completions.create(
                 model=config.LLM_MODEL,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 max_tokens=config.LLM_MAX_TOKENS,
+                extra_body=extra,
             )
         except Exception:
             log.exception(
@@ -168,6 +183,13 @@ async def run_agent_tick(
 
         choice = response.choices[0]
         assistant_msg = choice.message
+
+        extras = assistant_msg.model_extra or {}
+        reasoning = getattr(assistant_msg, "reasoning_content", None) or extras.get(
+            "reasoning"
+        )
+        if reasoning:
+            log.info("Session %s CoT: %s", session.key, reasoning[:300])
 
         history_entry: dict[str, Any] = {"role": "assistant"}
         if assistant_msg.content:
@@ -195,10 +217,11 @@ async def run_agent_tick(
                 )
             else:
                 log.warning(
-                    "Session %s LLM returned empty response (round %d, finish_reason=%s)",
+                    "Session %s LLM returned empty response (round %d, finish_reason=%s, content_repr=%r)",
                     session.key,
                     round_num,
                     choice.finish_reason,
+                    assistant_msg.content[:200] if assistant_msg.content else None,
                 )
             break
 
@@ -210,9 +233,16 @@ async def run_agent_tick(
                 fn_args = {}
 
             log.info("Session %s calling tool %s(%s)", session.key, fn_name, fn_args)
-            result = await execute_tool(bot, fn_name, fn_args)
+            result = await execute_tool(
+                bot, fn_name, fn_args, guild_id=session.guild_id
+            )
+            log_text = (
+                result
+                if isinstance(result, str)
+                else f"[multimodal: {len(result)} parts]"
+            )
             log.info(
-                "Session %s tool %s result: %s", session.key, fn_name, result[:500]
+                "Session %s tool %s result: %s", session.key, fn_name, log_text[:500]
             )
 
             session.conversation_history.append(
