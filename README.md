@@ -1,6 +1,7 @@
 # Robot Bleu
 
 Bot Discord conversationnel agentique utilisant un serveur LLM local (vLLM, OpenAI-compatible).
+Le system prompt est hardcodé en Francais pour mon usage, à améliorer.
 
 ## Fonctionnement
 

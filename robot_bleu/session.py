@@ -31,6 +31,26 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+class IdMapper:
+    """Maps large Discord IDs to small sequential integers."""
+
+    def __init__(self) -> None:
+        self._to_short: dict[int, int] = {}
+        self._to_real: dict[int, int] = {}
+        self._next: int = 1
+
+    def to_short(self, real_id: int) -> int:
+        if real_id not in self._to_short:
+            short = self._next
+            self._next += 1
+            self._to_short[real_id] = short
+            self._to_real[short] = real_id
+        return self._to_short[real_id]
+
+    def to_real(self, short_id: int) -> int | None:
+        return self._to_real.get(short_id)
+
+
 @dataclass
 class Session:
     """An active agent session bound to a guild or channel."""
@@ -39,11 +59,14 @@ class Session:
     guild_id: int
     channel_id: int | None  # None if server-wide
     persona: str = ""
+    bot_display_name: str = ""
     guild_name: str = ""
     channel_names: list[str] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     conversation_history: list[dict[str, Any]] = field(default_factory=list)
     enabled: bool = False
+    channel_ids: IdMapper = field(default_factory=IdMapper)
+    message_ids: IdMapper = field(default_factory=IdMapper)
 
     @property
     def key(self) -> str:
@@ -73,6 +96,7 @@ class Session:
             "guild_id": self.guild_id,
             "channel_id": self.channel_id,
             "persona": self.persona,
+            "bot_display_name": self.bot_display_name,
             "guild_name": self.guild_name,
             "channel_names": self.channel_names,
             "enabled": self.enabled,
@@ -90,6 +114,7 @@ class Session:
             guild_id=data["guild_id"],
             channel_id=data["channel_id"],
             persona=data["persona"],
+            bot_display_name=data.get("bot_display_name", ""),
             guild_name=data["guild_name"],
             channel_names=data.get("channel_names", []),
             enabled=data.get("enabled", True),
@@ -126,13 +151,20 @@ class SessionManager:
             session.save()
 
     def get(self, guild_id: int, channel_id: int | None = None) -> Session | None:
-        # Try channel-specific first, then server-wide
         if channel_id is not None:
             key = f"channel:{guild_id}:{channel_id}"
             if key in self._sessions:
                 return self._sessions[key]
         key = f"guild:{guild_id}"
-        return self._sessions.get(key)
+        result = self._sessions.get(key)
+        log.debug(
+            "get(guild=%s, channel=%s) -> %s (keys: %s)",
+            guild_id,
+            channel_id,
+            result.key if result else None,
+            list(self._sessions.keys()),
+        )
+        return result
 
     def activate(
         self,
@@ -146,6 +178,7 @@ class SessionManager:
             guild_id=guild.id,
             channel_id=channel_id,
             persona=persona,
+            bot_display_name=guild.me.display_name if guild.me else "",
             guild_name=guild.name,
             channel_names=[ch.name for ch in guild.text_channels],
             enabled=True,

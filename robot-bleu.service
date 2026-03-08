@@ -1,0 +1,15 @@
+[Unit]
+Description=Robot Bleu - Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alexa
+WorkingDirectory=/home/alexa/Robot-Bleu
+ExecStart=/home/alexa/.local/bin/uv run robot-bleu
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

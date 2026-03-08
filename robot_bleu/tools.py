@@ -11,6 +11,8 @@ from typing import Any
 import discord
 from ddgs import DDGS
 
+from .session import IdMapper
+
 log = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -177,8 +179,22 @@ async def execute_tool(
     arguments: dict[str, Any],
     *,
     guild_id: int,
+    channel_ids: IdMapper,
+    message_ids: IdMapper,
 ) -> ToolResult:
     """Execute a tool call and return a text or multimodal result for the LLM."""
+    # Translate short IDs back to real Discord IDs
+    if "channel_id" in arguments:
+        real = channel_ids.to_real(arguments["channel_id"])
+        if real is None:
+            return f"Unknown channel_id: {arguments['channel_id']}"
+        arguments["channel_id"] = real
+    if "message_id" in arguments:
+        real = message_ids.to_real(arguments["message_id"])
+        if real is None:
+            return f"Unknown message_id: {arguments['message_id']}"
+        arguments["message_id"] = real
+
     try:
         match tool_name:
             case "send_message":
@@ -190,9 +206,15 @@ async def execute_tool(
             case "list_users":
                 return await _list_users(bot, guild_id=guild_id, **arguments)
             case "list_channels":
-                return _list_channels(bot, guild_id=guild_id)
+                return _list_channels(bot, guild_id=guild_id, channel_ids=channel_ids)
             case "read_messages":
-                return await _read_messages(bot, guild_id=guild_id, **arguments)
+                return await _read_messages(
+                    bot,
+                    guild_id=guild_id,
+                    channel_ids=channel_ids,
+                    message_ids=message_ids,
+                    **arguments,
+                )
             case "fetch_attachment":
                 return await _fetch_attachment(bot, guild_id=guild_id, **arguments)
             case "do_nothing":
@@ -223,13 +245,13 @@ async def _react_to_message(
     return f"Reacted with {emoji}."
 
 
-def _list_channels(bot: discord.Client, guild_id: int) -> str:
+def _list_channels(bot: discord.Client, guild_id: int, channel_ids: IdMapper) -> str:
     guild = bot.get_guild(guild_id)
     if guild is None:
         return "Server not found."
     bot_member = guild.me
     lines = [
-        f"- #{ch.name} (id:{ch.id})"
+        f"- #{ch.name} (id:{channel_ids.to_short(ch.id)})"
         for ch in guild.text_channels
         if ch.permissions_for(bot_member).read_messages
     ]
@@ -267,11 +289,16 @@ async def _list_users(
 
 
 async def _read_messages(
-    bot: discord.Client, guild_id: int, channel_id: int, limit: int = 10
+    bot: discord.Client,
+    guild_id: int,
+    channel_id: int,
+    channel_ids: IdMapper,
+    message_ids: IdMapper,
+    limit: int = 10,
 ) -> str:
     channel = bot.get_channel(channel_id)
     if channel is None or channel.guild.id != guild_id:
-        return f"Channel {channel_id} not found on this server."
+        return "Channel not found on this server."
     limit = min(limit, 50)
     messages = [msg async for msg in channel.history(limit=limit)]
     if not messages:
@@ -279,19 +306,20 @@ async def _read_messages(
     lines = []
     for msg in reversed(messages):
         author = msg.author.display_name
+        mid = message_ids.to_short(msg.id)
         parts = []
         if msg.content:
             parts.append(msg.content[:300])
         for i, att in enumerate(msg.attachments):
             if att.content_type and att.content_type.startswith("image/"):
-                parts.append(f"[image: {att.filename}, msg_id:{msg.id}, index:{i}]")
+                parts.append(f"[image: {att.filename}, msg_id:{mid}, index:{i}]")
             else:
-                parts.append(f"[fichier: {att.filename}, msg_id:{msg.id}, index:{i}]")
+                parts.append(f"[fichier: {att.filename}, msg_id:{mid}, index:{i}]")
         for embed in msg.embeds:
             title = embed.title or ""
             desc = (embed.description or "")[:100]
             parts.append(f"[embed: {title} - {desc}]")
-        lines.append(f"- {author}: {' '.join(parts) or '[vide]'}")
+        lines.append(f"- {author} (msg_id:{mid}): {' '.join(parts) or '[vide]'}")
     return f"Recent messages in #{channel.name}:\n" + "\n".join(lines)
 
 

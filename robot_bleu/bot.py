@@ -31,7 +31,7 @@ class RobotBleu(discord.Client):
         self.sessions = SessionManager()
         self.llm_client = AsyncOpenAI(
             base_url=config.LLM_BASE_URL,
-            api_key="not-needed",
+            api_key=config.LLM_API_KEY,
         )
         self._agent_task: asyncio.Task | None = None
 

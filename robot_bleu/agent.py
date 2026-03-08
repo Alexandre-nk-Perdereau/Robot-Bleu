@@ -12,7 +12,7 @@ import httpx
 from openai import AsyncOpenAI
 
 from . import config
-from .session import Event, Session, SessionManager
+from .session import Event, Session
 from .tools import TOOL_DEFINITIONS, execute_tool
 
 log = logging.getLogger(__name__)
@@ -20,21 +20,20 @@ log = logging.getLogger(__name__)
 
 def _build_system_prompt(session: Session) -> str:
     parts = [session.persona]
-    parts.append(f'\nTu es sur le serveur Discord "{session.guild_name}".')
-    if session.channel_names:
-        parts.append(f"Canaux disponibles: {', '.join(session.channel_names)}")
+    if session.bot_display_name:
+        parts.append(f"\nTon nom est {session.bot_display_name}.")
+    parts.append(f'Serveur Discord: "{session.guild_name}".')
     parts.append(
-        "\nTu recois periodiquement des evenements Discord (nouveaux messages, reactions, etc). "
-        "A chaque tick, tu decides quoi faire: repondre, reagir avec un emoji, chercher sur le web, ou ne rien faire. "
-        "Tu n'es pas oblige de repondre a chaque message. Sois naturel et contextuel. "
-        "IMPORTANT: Tu ne peux communiquer qu'en utilisant les outils. "
-        "Pour envoyer un message, utilise TOUJOURS l'outil send_message. "
-        "Le texte que tu ecris en dehors des appels d'outils n'est PAS visible par les utilisateurs."
+        "Tu recois des evenements Discord et decides quoi faire via les outils. "
+        "Sois naturel, ne reponds pas a chaque message, répond pas à ceux qui ne te concernent pas sans raison, tu peux cela dire reagir avec des emotes si tu le juges pertinent. "
+        "Le texte hors appels d'outils n'est PAS visible par les utilisateurs."
     )
     return "\n".join(parts)
 
 
-def _build_events_content(events: list[Event]) -> list[dict[str, Any]]:
+def _build_events_content(
+    events: list[Event], session: Session
+) -> list[dict[str, Any]]:
     """Build a list of OpenAI content parts (text + images) from events."""
     if not events:
         return [{"type": "text", "text": "(Aucun nouvel evenement)"}]
@@ -49,9 +48,11 @@ def _build_events_content(events: list[Event]) -> list[dict[str, Any]]:
                 author = ev.data.get("author", "?")
                 msg_content = ev.data.get("content", "")
                 channel = ev.data.get("channel_name", "?")
-                channel_id = ev.data.get("channel_id", "?")
-                message_id = ev.data.get("message_id", "?")
-                line = f"[{ts}] #{channel}(id:{channel_id}) {author}: {msg_content} (msg_id:{message_id})"
+                raw_ch_id = ev.data.get("channel_id")
+                raw_msg_id = ev.data.get("message_id")
+                ch_id = session.channel_ids.to_short(raw_ch_id) if raw_ch_id else "?"
+                msg_id = session.message_ids.to_short(raw_msg_id) if raw_msg_id else "?"
+                line = f"[{ts}] #{channel}(id:{ch_id}) {author}: {msg_content} (msg_id:{msg_id})"
 
                 # Append text file contents inline
                 for tf in ev.data.get("text_files", []):
@@ -79,7 +80,13 @@ def _build_events_content(events: list[Event]) -> list[dict[str, Any]]:
                 user = ev.data.get("user", "?")
                 emoji = ev.data.get("emoji", "?")
                 channel = ev.data.get("channel_name", "?")
-                text_lines.append(f"[{ts}] #{channel} {user} a reagi avec {emoji}")
+                raw_ch_id = ev.data.get("channel_id")
+                raw_msg_id = ev.data.get("message_id")
+                ch_id = session.channel_ids.to_short(raw_ch_id) if raw_ch_id else "?"
+                msg_id = session.message_ids.to_short(raw_msg_id) if raw_msg_id else "?"
+                text_lines.append(
+                    f"[{ts}] #{channel}(id:{ch_id}) {user} a reagi avec {emoji} (msg_id:{msg_id})"
+                )
             case _:
                 text_lines.append(
                     f"[{ts}] {ev.kind}: {json.dumps(ev.data, ensure_ascii=False)}"
@@ -99,8 +106,11 @@ async def check_llm_available() -> bool:
     """Check if the vLLM server is reachable."""
     global _llm_was_down
     try:
-        async with httpx.AsyncClient(timeout=2) as client:
-            resp = await client.get(f"{config.LLM_BASE_URL}/models")
+        headers = {}
+        if config.LLM_API_KEY and config.LLM_API_KEY != "not-needed":
+            headers["Authorization"] = f"Bearer {config.LLM_API_KEY}"
+        async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
+            resp = await client.get(f"{config.LLM_BASE_URL}/models", headers=headers)
             if resp.status_code == 200:
                 if _llm_was_down:
                     log.info("LLM server is back online at %s", config.LLM_BASE_URL)
@@ -112,6 +122,26 @@ async def check_llm_available() -> bool:
         log.warning("LLM server unreachable at %s", config.LLM_BASE_URL)
         _llm_was_down = True
     return False
+
+
+def _build_extra_body() -> dict[str, Any] | None:
+    """Build backend-specific extra_body for the LLM request."""
+    thinking = config.LLM_MAX_THINKING_TOKENS > 0
+
+    match config.LLM_BACKEND:
+        case "vllm":
+            if thinking:
+                return {
+                    "chat_template_kwargs": {"enable_thinking": True},
+                    "thinking_budget": config.LLM_MAX_THINKING_TOKENS,
+                }
+            return {"chat_template_kwargs": {"enable_thinking": False}}
+        case "ollama":
+            if thinking:
+                return {"think": True}
+            return None
+        case _:
+            return None
 
 
 async def run_agent_tick(
@@ -131,7 +161,7 @@ async def run_agent_tick(
         config.LLM_MAX_THINKING_TOKENS,
     )
 
-    event_parts = _build_events_content(events)
+    event_parts = _build_events_content(events, session)
     header = {"type": "text", "text": "Nouveaux evenements:"}
     user_content = [header] + event_parts
 
@@ -156,21 +186,13 @@ async def run_agent_tick(
         ]
 
         try:
-            if config.LLM_MAX_THINKING_TOKENS > 0:
-                extra = {
-                    "chat_template_kwargs": {"enable_thinking": True},
-                    "thinking_budget": config.LLM_MAX_THINKING_TOKENS,
-                }
-            else:
-                extra = {
-                    "chat_template_kwargs": {"enable_thinking": False},
-                }
+            extra = _build_extra_body()
             response = await llm_client.chat.completions.create(
                 model=config.LLM_MODEL,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 max_tokens=config.LLM_MAX_TOKENS,
-                extra_body=extra,
+                **({"extra_body": extra} if extra else {}),
             )
         except Exception:
             log.exception(
@@ -234,7 +256,12 @@ async def run_agent_tick(
 
             log.info("Session %s calling tool %s(%s)", session.key, fn_name, fn_args)
             result = await execute_tool(
-                bot, fn_name, fn_args, guild_id=session.guild_id
+                bot,
+                fn_name,
+                fn_args,
+                guild_id=session.guild_id,
+                channel_ids=session.channel_ids,
+                message_ids=session.message_ids,
             )
             log_text = (
                 result
