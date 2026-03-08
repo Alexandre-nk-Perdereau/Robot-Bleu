@@ -11,7 +11,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import discord
-import httpx
+from curl_cffi import requests as curl_requests
 from ddgs import DDGS
 
 from .session import IdMapper
@@ -559,16 +559,15 @@ async def _web_search(query: str, max_results: int = 5) -> str:
 
 
 async def _fetch_url(url: str) -> str:
-    async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
-        resp = await client.get(
-            url, headers={"User-Agent": "Mozilla/5.0 (compatible; Robot-Bleu/0.1)"}
-        )
-        resp.raise_for_status()
+    def _get() -> curl_requests.Response:
+        return curl_requests.get(url, impersonate="chrome", timeout=10)
 
-    content_type = resp.headers.get("content-type", "")
+    resp = await asyncio.get_event_loop().run_in_executor(None, _get)
+    resp.raise_for_status()
+
     text = resp.text
 
-    if "html" in content_type:
+    if "<html" in text[:500].lower():
         text = _extract_text_from_html(text)
 
     if len(text) > 4000:
