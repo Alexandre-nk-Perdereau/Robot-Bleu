@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
+from html import unescape
 from pathlib import PurePosixPath
 from typing import Any
 
 import discord
+import httpx
 from ddgs import DDGS
 
 from .session import IdMapper
@@ -159,6 +162,94 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "reply_to_message",
+            "description": "Reply to a specific message, creating a visible reply reference.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {
+                        "type": "integer",
+                        "description": "The channel containing the message to reply to.",
+                    },
+                    "message_id": {
+                        "type": "integer",
+                        "description": "The message ID to reply to.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The reply content.",
+                    },
+                },
+                "required": ["channel_id", "message_id", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_message",
+            "description": "Edit a message previously sent by the bot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {
+                        "type": "integer",
+                        "description": "The channel containing the message.",
+                    },
+                    "message_id": {
+                        "type": "integer",
+                        "description": "The message ID to edit.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The new message content.",
+                    },
+                },
+                "required": ["channel_id", "message_id", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_message",
+            "description": "Delete a message previously sent by the bot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel_id": {
+                        "type": "integer",
+                        "description": "The channel containing the message.",
+                    },
+                    "message_id": {
+                        "type": "integer",
+                        "description": "The message ID to delete.",
+                    },
+                },
+                "required": ["channel_id", "message_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "Fetch the content of a web page. Useful to read a page found via web_search. Returns extracted text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch.",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "do_nothing",
             "description": "Explicitly choose to do nothing this tick. Use when there is nothing interesting to respond to.",
             "parameters": {
@@ -198,7 +289,9 @@ async def execute_tool(
     try:
         match tool_name:
             case "send_message":
-                return await _send_message(bot, **arguments)
+                return await _send_message(
+                    bot, message_ids=message_ids, **arguments
+                )
             case "react_to_message":
                 return await _react_to_message(bot, **arguments)
             case "web_search":
@@ -217,6 +310,16 @@ async def execute_tool(
                 )
             case "fetch_attachment":
                 return await _fetch_attachment(bot, guild_id=guild_id, **arguments)
+            case "reply_to_message":
+                return await _reply_to_message(
+                    bot, message_ids=message_ids, **arguments
+                )
+            case "edit_message":
+                return await _edit_message(bot, **arguments)
+            case "delete_message":
+                return await _delete_message(bot, **arguments)
+            case "fetch_url":
+                return await _fetch_url(**arguments)
             case "do_nothing":
                 return "OK, doing nothing."
             case _:
@@ -226,12 +329,57 @@ async def execute_tool(
         return f"Error executing {tool_name}: {e}"
 
 
-async def _send_message(bot: discord.Client, channel_id: int, content: str) -> str:
+async def _send_message(
+    bot: discord.Client, channel_id: int, content: str, message_ids: IdMapper
+) -> str:
     channel = bot.get_channel(channel_id)
     if channel is None:
         return f"Channel {channel_id} not found."
-    await channel.send(content)
-    return f"Message sent to #{channel.name}."
+    sent = await channel.send(content)
+    short_id = message_ids.to_short(sent.id)
+    return f"Message sent to #{channel.name} (msg_id:{short_id})."
+
+
+async def _reply_to_message(
+    bot: discord.Client,
+    channel_id: int,
+    message_id: int,
+    content: str,
+    message_ids: IdMapper,
+) -> str:
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        return f"Channel {channel_id} not found."
+    ref = discord.MessageReference(message_id=message_id, channel_id=channel_id)
+    sent = await channel.send(content, reference=ref)
+    short_id = message_ids.to_short(sent.id)
+    return f"Reply sent in #{channel.name} (msg_id:{short_id})."
+
+
+async def _edit_message(
+    bot: discord.Client, channel_id: int, message_id: int, content: str
+) -> str:
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        return f"Channel {channel_id} not found."
+    message = await channel.fetch_message(message_id)
+    if message.author.id != bot.user.id:
+        return "Cannot edit messages from other users."
+    await message.edit(content=content)
+    return "Message edited."
+
+
+async def _delete_message(
+    bot: discord.Client, channel_id: int, message_id: int
+) -> str:
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        return f"Channel {channel_id} not found."
+    message = await channel.fetch_message(message_id)
+    if message.author.id != bot.user.id:
+        return "Cannot delete messages from other users."
+    await message.delete()
+    return "Message deleted."
 
 
 async def _react_to_message(
@@ -408,3 +556,37 @@ async def _web_search(query: str, max_results: int = 5) -> str:
     for r in results:
         formatted.append(f"- {r['title']}: {r['body']} ({r['href']})")
     return "\n".join(formatted)
+
+
+async def _fetch_url(url: str) -> str:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+        resp = await client.get(
+            url, headers={"User-Agent": "Mozilla/5.0 (compatible; Robot-Bleu/0.1)"}
+        )
+        resp.raise_for_status()
+
+    content_type = resp.headers.get("content-type", "")
+    text = resp.text
+
+    if "html" in content_type:
+        text = _extract_text_from_html(text)
+
+    if len(text) > 4000:
+        text = text[:4000] + "\n[… tronqué]"
+    return text or "Page vide."
+
+
+def _extract_text_from_html(html: str) -> str:
+    """Strip HTML to plain text."""
+    # Remove script/style/noscript blocks
+    html = re.sub(
+        r"<(script|style|noscript)[^>]*>.*?</\1>",
+        "",
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n", "\n\n", text)
+    return text.strip()

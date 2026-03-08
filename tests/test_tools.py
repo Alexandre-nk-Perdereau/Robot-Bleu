@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from robot_bleu.session import IdMapper
-from robot_bleu.tools import execute_tool
+from robot_bleu.tools import _extract_text_from_html, execute_tool
 
 
 @pytest.fixture
@@ -95,3 +95,129 @@ class TestExecuteToolRouting:
             bot, "list_channels", {}, guild_id=1, channel_ids=ch, message_ids=msg
         )
         assert "Error" in result
+
+
+class TestReplyToMessage:
+    @pytest.mark.asyncio
+    async def test_reply_sends_with_reference(self, bot, mappers):
+        ch, msg = mappers
+        channel_mock = MagicMock()
+        channel_mock.name = "general"
+        channel_mock.send = AsyncMock()
+        bot.get_channel = MagicMock(return_value=channel_mock)
+
+        result = await execute_tool(
+            bot,
+            "reply_to_message",
+            {"channel_id": 1, "message_id": 1, "content": "yo"},
+            guild_id=1,
+            channel_ids=ch,
+            message_ids=msg,
+        )
+        call_kwargs = channel_mock.send.call_args
+        assert call_kwargs.kwargs.get("reference") is not None
+        assert "reply" in result.lower()
+
+
+class TestEditMessage:
+    @pytest.mark.asyncio
+    async def test_edit_own_message(self, bot, mappers):
+        ch, msg = mappers
+        message_mock = AsyncMock()
+        message_mock.author.id = 42
+        bot.user.id = 42
+        channel_mock = MagicMock()
+        channel_mock.fetch_message = AsyncMock(return_value=message_mock)
+        bot.get_channel = MagicMock(return_value=channel_mock)
+
+        result = await execute_tool(
+            bot,
+            "edit_message",
+            {"channel_id": 1, "message_id": 1, "content": "updated"},
+            guild_id=1,
+            channel_ids=ch,
+            message_ids=msg,
+        )
+        message_mock.edit.assert_called_once_with(content="updated")
+        assert "edited" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_edit_other_user_rejected(self, bot, mappers):
+        ch, msg = mappers
+        message_mock = AsyncMock()
+        message_mock.author.id = 99
+        bot.user.id = 42
+        channel_mock = MagicMock()
+        channel_mock.fetch_message = AsyncMock(return_value=message_mock)
+        bot.get_channel = MagicMock(return_value=channel_mock)
+
+        result = await execute_tool(
+            bot,
+            "edit_message",
+            {"channel_id": 1, "message_id": 1, "content": "hacked"},
+            guild_id=1,
+            channel_ids=ch,
+            message_ids=msg,
+        )
+        message_mock.edit.assert_not_called()
+        assert "Cannot" in result
+
+
+class TestDeleteMessage:
+    @pytest.mark.asyncio
+    async def test_delete_own_message(self, bot, mappers):
+        ch, msg = mappers
+        message_mock = AsyncMock()
+        message_mock.author.id = 42
+        bot.user.id = 42
+        channel_mock = MagicMock()
+        channel_mock.fetch_message = AsyncMock(return_value=message_mock)
+        bot.get_channel = MagicMock(return_value=channel_mock)
+
+        result = await execute_tool(
+            bot,
+            "delete_message",
+            {"channel_id": 1, "message_id": 1},
+            guild_id=1,
+            channel_ids=ch,
+            message_ids=msg,
+        )
+        message_mock.delete.assert_called_once()
+        assert "deleted" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_delete_other_user_rejected(self, bot, mappers):
+        ch, msg = mappers
+        message_mock = AsyncMock()
+        message_mock.author.id = 99
+        bot.user.id = 42
+        channel_mock = MagicMock()
+        channel_mock.fetch_message = AsyncMock(return_value=message_mock)
+        bot.get_channel = MagicMock(return_value=channel_mock)
+
+        result = await execute_tool(
+            bot,
+            "delete_message",
+            {"channel_id": 1, "message_id": 1},
+            guild_id=1,
+            channel_ids=ch,
+            message_ids=msg,
+        )
+        message_mock.delete.assert_not_called()
+        assert "Cannot" in result
+
+
+class TestExtractTextFromHtml:
+    def test_strips_tags(self):
+        assert _extract_text_from_html("<p>Hello</p>") == "Hello"
+
+    def test_removes_script_blocks(self):
+        html = "<p>Hi</p><script>alert('x')</script><p>There</p>"
+        result = _extract_text_from_html(html)
+        assert "alert" not in result
+        assert "Hi" in result and "There" in result
+
+    def test_decodes_entities(self):
+        result = _extract_text_from_html("<p>A &amp; B</p>")
+        assert "A & B" in result
+        assert "&amp;" not in result
