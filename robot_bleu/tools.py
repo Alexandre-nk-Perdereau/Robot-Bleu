@@ -341,6 +341,7 @@ TEXT_EXTENSIONS = {
     ".cfg",
     ".log",
     ".sh",
+    ".bat",
     ".sql",
     ".rs",
     ".go",
@@ -352,6 +353,9 @@ TEXT_EXTENSIONS = {
     ".rb",
     ".lua",
     ".r",
+    ".tex",
+    ".rst",
+    ".org",
 }
 
 

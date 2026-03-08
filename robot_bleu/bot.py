@@ -7,13 +7,13 @@ import base64
 import logging
 
 import discord
-import httpx
 from discord import app_commands
 from openai import AsyncOpenAI
 
 from . import config
 from .agent import check_llm_available, run_agent_tick
 from .session import SessionManager, SessionMode
+from .tools import TEXT_EXTENSIONS
 
 log = logging.getLogger(__name__)
 
@@ -223,41 +223,6 @@ class RobotBleu(discord.Client):
 
     # -- Event listeners --
 
-    TEXT_EXTENSIONS = {
-        ".txt",
-        ".md",
-        ".py",
-        ".js",
-        ".ts",
-        ".json",
-        ".csv",
-        ".xml",
-        ".html",
-        ".css",
-        ".yaml",
-        ".yml",
-        ".toml",
-        ".ini",
-        ".cfg",
-        ".log",
-        ".sh",
-        ".bat",
-        ".sql",
-        ".rs",
-        ".go",
-        ".java",
-        ".c",
-        ".cpp",
-        ".h",
-        ".hpp",
-        ".rb",
-        ".lua",
-        ".r",
-        ".tex",
-        ".rst",
-        ".org",
-    }
-
     async def on_message(self, message: discord.Message) -> None:
         if message.author == self.user:
             return
@@ -289,9 +254,7 @@ class RobotBleu(discord.Client):
                     data = await att.read()
                     b64 = base64.b64encode(data).decode()
                     images_b64.append({"mime": att.content_type, "base64": b64})
-                elif any(
-                    att.filename.lower().endswith(ext) for ext in self.TEXT_EXTENSIONS
-                ):
+                elif any(att.filename.lower().endswith(ext) for ext in TEXT_EXTENSIONS):
                     data = await att.read()
                     text_files.append(
                         {

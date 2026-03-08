@@ -43,18 +43,18 @@ def _build_events_content(
 
     for ev in events:
         ts = time.strftime("%H:%M:%S", time.localtime(ev.timestamp))
+        raw_ch_id = ev.data.get("channel_id")
+        raw_msg_id = ev.data.get("message_id")
+        ch_id = session.channel_ids.to_short(raw_ch_id) if raw_ch_id else "?"
+        msg_id = session.message_ids.to_short(raw_msg_id) if raw_msg_id else "?"
+
         match ev.kind:
             case "message":
                 author = ev.data.get("author", "?")
                 msg_content = ev.data.get("content", "")
                 channel = ev.data.get("channel_name", "?")
-                raw_ch_id = ev.data.get("channel_id")
-                raw_msg_id = ev.data.get("message_id")
-                ch_id = session.channel_ids.to_short(raw_ch_id) if raw_ch_id else "?"
-                msg_id = session.message_ids.to_short(raw_msg_id) if raw_msg_id else "?"
                 line = f"[{ts}] #{channel}(id:{ch_id}) {author}: {msg_content} (msg_id:{msg_id})"
 
-                # Append text file contents inline
                 for tf in ev.data.get("text_files", []):
                     line += f"\n--- fichier: {tf['filename']} ---\n{tf['content']}\n---"
 
@@ -80,10 +80,6 @@ def _build_events_content(
                 user = ev.data.get("user", "?")
                 emoji = ev.data.get("emoji", "?")
                 channel = ev.data.get("channel_name", "?")
-                raw_ch_id = ev.data.get("channel_id")
-                raw_msg_id = ev.data.get("message_id")
-                ch_id = session.channel_ids.to_short(raw_ch_id) if raw_ch_id else "?"
-                msg_id = session.message_ids.to_short(raw_msg_id) if raw_msg_id else "?"
                 text_lines.append(
                     f"[{ts}] #{channel}(id:{ch_id}) {user} a reagi avec {emoji} (msg_id:{msg_id})"
                 )
