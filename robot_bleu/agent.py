@@ -196,7 +196,8 @@ async def run_agent_tick(
             )
             if round_num == 0:
                 session.events = events + session.events
-                session.conversation_history.pop()
+                if session.conversation_history:
+                    session.conversation_history.pop()
             return
 
         choice = response.choices[0]
